@@ -1,0 +1,55 @@
+# Build tree
+build/
+
+# Output binaries and runtime libs
+bin/
+
+# libmpv SDK - populated manually before building
+sdk/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+_deps/
+
+# Ninja
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+
+# Visual Studio
+.vs/
+*.sln.user
+*.suo
+*.user
+*.userosscache
+*.sln.docview
+*.vcxproj.user
+*.ncb
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+
+# VS Code
+.vscode/
+
+# CLion / JetBrains
+.idea/
+cmake-build-*/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log

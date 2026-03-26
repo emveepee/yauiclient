@@ -10,7 +10,7 @@ yauiclient uses [libmpv](https://mpv.io) for video playback with an OpenGL overl
 
 ## Features
 
-- Hardware-accelerated video playback via libmpv (VAAPI on Linux, DXVA2/D3D11 on Windows)
+- Hardware-accelerated video playback via libmpv (VAAPI on Linux, DXVA2/D3D11 on Windows, VideoToolbox on macOS)
 - OpenGL overlay driven by NextPVR server UI
 - Shared memory (shmem) mode for low-latency local rendering
 - Thumbnail strip seek UI
@@ -24,11 +24,12 @@ yauiclient uses [libmpv](https://mpv.io) for video playback with an OpenGL overl
 
 | Platform | Status |
 |---|---|
-| Windows (MSVC) | ✅ Working |
-| Windows (MinGW64 / MSYS2) | ✅ Working |
-| Linux x86_64 | ✅ Working |
+| Windows (MSVC) | ✓ Working |
+| Windows (MinGW64 / MSYS2) | ✓ Working |
+| Linux x86_64 | ✓ Working |
+| macOS x86_64 (13.0+) | ✓ Working |
+| macOS Apple Silicon | 🔧 Untested |
 | Linux aarch64 / RPi | 🔧 In progress |
-| macOS | 🔧 Planned |
 
 ---
 
@@ -45,6 +46,69 @@ yauiclient/
 ├── build/                # gitignored - CMake build tree
 └── bin/                  # gitignored - executables and runtime libs
 ```
+
+---
+
+## macOS quick start
+
+**Prerequisites — install Homebrew and dependencies:**
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install cmake ninja pkg-config curl glfw fmt nlohmann-json zlib mpv
+```
+
+**Clone and build:**
+
+```bash
+git clone https://github.com/emveepee/yauiclient.git
+cd yauiclient
+export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
+cmake -B build/macos-Release -S . -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DYAUICLIENT_USE_SYSTEM_MPV=ON
+cmake --build build/macos-Release --parallel $(sysctl -n hw.logicalcpu)
+```
+
+Output: `build/macos-Release/yauiclient`
+
+**Notes:**
+- macOS uses the system libmpv from Homebrew — no SDK tarballs needed
+- OpenGL is deprecated on macOS but fully functional on macOS 13.0+
+- Shared memory mode requires both the NextPVR server and yauiclient running on the same Mac
+- mpv configuration can be placed in `~/.config/mpv/mpv.conf`
+
+**Rebuilding after updates:**
+
+```bash
+cmake --build build/macos-Release --parallel $(sysctl -n hw.logicalcpu)
+```
+
+Clean rebuild:
+
+```bash
+rm -rf build/macos-Release
+cmake -B build/macos-Release -S . -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DYAUICLIENT_USE_SYSTEM_MPV=ON
+cmake --build build/macos-Release --parallel $(sysctl -n hw.logicalcpu)
+```
+
+**Packaging a distributable app bundle:**
+
+```bash
+brew install dylibbundler
+chmod +x tools/package-macos.sh
+./tools/package-macos.sh Release
+```
+
+Output: `dist/yauiclient.app` and `dist/yauiclient-macos-x64.tar.gz`
+
+> **Note:** The app bundle is ad-hoc signed but not notarized. On first launch,
+> right-click → Open to bypass Gatekeeper, or run:
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/yauiclient.app
+> ```
 
 ---
 
@@ -105,6 +169,12 @@ for full per-platform instructions including Windows (MSVC and MinGW64).
 
 ## Rebuilding after updates
 
+### macOS
+
+```bash
+cmake --build build/macos-Release --parallel $(sysctl -n hw.logicalcpu)
+```
+
 ### Linux
 
 After a `git pull` just re-run the build script — CMake will only recompile changed files:
@@ -162,15 +232,23 @@ cmake --build build/windows
 
 ---
 
-## Using system libmpv (Linux only)
+## Using system libmpv (Linux and macOS)
 
-If you prefer the distro-packaged libmpv (no teletext, may be an older version):
+If you prefer the distro/Homebrew-packaged libmpv (no teletext, may be an older version):
 
+**Linux:**
 ```bash
 YAUICLIENT_USE_SYSTEM_MPV=1 ./tools/build-linux.sh Release
 ```
 
-No SDK or runtime tarballs needed.
+**macOS:**
+```bash
+cmake -B build/macos-Release -S . -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DYAUICLIENT_USE_SYSTEM_MPV=ON
+```
+
+No SDK or runtime tarballs needed on either platform with this option.
 
 ---
 
@@ -186,15 +264,15 @@ and remote control key mapping.
 
 | Library | How it is provided |
 |---|---|
-| libmpv | Prebuilt SDK from wiki, or system package |
+| libmpv | Prebuilt SDK from wiki (Windows/Linux), Homebrew (macOS), or system package |
 | FFmpeg | Bundled in libmpv SDK runtime |
 | libplacebo | Bundled in libmpv SDK runtime |
-| GLFW3 | System package / vcpkg |
-| fmt | System package / vcpkg |
-| nlohmann-json | System package / vcpkg |
+| GLFW3 | System package / vcpkg / Homebrew |
+| fmt | System package / vcpkg / Homebrew |
+| nlohmann-json | System package / vcpkg / Homebrew |
 | cpr | Fetched automatically by CMake (FetchContent) |
-| libcurl | System package / vcpkg |
-| zlib | System package / vcpkg |
+| libcurl | System package / vcpkg / Homebrew |
+| zlib | System package / vcpkg / Homebrew |
 
 ---
 

@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
+
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
+
 project(yauiclient VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_SKIP_RPATH FALSE)
@@ -228,16 +231,18 @@ elseif(PLATFORM_LINUX)
   )
 
 elseif(PLATFORM_MACOS)
+  target_compile_definitions(yauiclient PRIVATE GL_SILENCE_DEPRECATION)
   target_link_libraries(yauiclient PRIVATE
     "-framework Cocoa"
     "-framework CoreVideo"
     "-framework CoreMedia"
+    "-framework IOKit"
     "-framework VideoToolbox"
     "-framework AudioToolbox"
   )
   target_compile_options(yauiclient PRIVATE -Wall -Wextra -Wno-unused-parameter)
   set_target_properties(yauiclient PROPERTIES
-    INSTALL_RPATH "@executable_path/../lib"
+    INSTALL_RPATH "@executable_path;@executable_path/../lib;@executable_path/../Frameworks"
     BUILD_WITH_INSTALL_RPATH TRUE
   )
 endif()

@@ -19,6 +19,9 @@ option(YAUICLIENT_USE_SYSTEM_MPV "Use system libmpv instead of SDK" OFF)
 set(LIBMPV_SDK_DIR "${CMAKE_SOURCE_DIR}/sdk" CACHE PATH
     "Path to libmpv SDK directory (contains include/ and lib/)")
 
+option(YAUI_RPI "Raspberry Pi family target" OFF)
+option(YAUI_LEGL "LibreELEC X11/OpenGL target build" OFF)
+
 # ---------------------------------------------------------------------------
 # Platform detection
 # ---------------------------------------------------------------------------
@@ -166,16 +169,17 @@ target_link_libraries(yauiclient PRIVATE OpenGL::GL)
 # ---------------------------------------------------------------------------
 if(PLATFORM_LINUX OR PLATFORM_MACOS)
   find_package(cpr QUIET)
-  if(NOT cpr_FOUND)
+    if(NOT cpr_FOUND AND NOT YAUI_LEGL)
     message(STATUS "cpr not found as system package - fetching via FetchContent")
     include(FetchContent)
     FetchContent_Declare(
       cpr
       GIT_REPOSITORY https://github.com/libcpr/cpr.git
-      GIT_TAG        1.11.0
+      GIT_TAG        1.14.2
     )
     set(CPR_USE_SYSTEM_CURL ON CACHE BOOL "" FORCE)
-    set(CPR_ENABLE_SSL ON CACHE BOOL "" FORCE)
+    set(CPR_ENABLE_SSL OFF CACHE BOOL "" FORCE)   # let system curl handle SSL
+    set(CPR_USE_SYSTEM_CURL ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(cpr)
   endif()
   target_link_libraries(yauiclient PRIVATE cpr::cpr)
@@ -215,17 +219,24 @@ elseif(PLATFORM_LINUX)
   if(LIBBLURAY_FOUND)
     target_link_libraries(yauiclient PRIVATE ${LIBBLURAY_LIBRARIES})
     target_link_directories(yauiclient PRIVATE ${LIBBLURAY_LIBRARY_DIRS})
-  else()
+  elseif(NOT YAUI_LEGL)
     target_link_libraries(yauiclient PRIVATE bluray)
   endif()
   find_package(JPEG QUIET)
-  if(JPEG_FOUND)
-    target_link_libraries(yauiclient PRIVATE JPEG::JPEG)
+  if(NOT YAUI_LEGL)
+    find_package(JPEG QUIET)
+    if(JPEG_FOUND)
+      target_link_libraries(yauiclient PRIVATE JPEG::JPEG)
+    endif()
+  endif()
+  if(YAUI_RPI)
+    target_compile_definitions(yauiclient PRIVATE YAUI_RPI)
   endif()
   target_compile_options(yauiclient PRIVATE -Wall -Wextra -Wno-unused-parameter)
   set_target_properties(yauiclient PROPERTIES
+    BUILD_RPATH "$ORIGIN"
     INSTALL_RPATH "$ORIGIN"
-    BUILD_WITH_INSTALL_RPATH TRUE
+    BUILD_WITH_INSTALL_RPATH FALSE
     SKIP_BUILD_RPATH FALSE
     BUILD_RPATH_USE_ORIGIN TRUE
   )

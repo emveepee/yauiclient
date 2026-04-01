@@ -19,8 +19,14 @@ option(YAUICLIENT_USE_SYSTEM_MPV "Use system libmpv instead of SDK" OFF)
 set(LIBMPV_SDK_DIR "${CMAKE_SOURCE_DIR}/sdk" CACHE PATH
     "Path to libmpv SDK directory (contains include/ and lib/)")
 
-option(YAUI_RPI "Raspberry Pi family target" OFF)
-option(YAUI_LEGL "LibreELEC X11/OpenGL target build" OFF)
+option(YAUI_RPI  "Raspberry Pi family target" OFF)
+option(YAUI_LEGL "LibreELEC X11/OpenGL target build (Generic-legacy)" OFF)
+option(YAUI_LEGBM "LibreELEC GBM/GLES target build (Generic non-legacy)" OFF)
+
+# Validate — LEGL and LEGBM are mutually exclusive
+if(YAUI_LEGL AND YAUI_LEGBM)
+  message(FATAL_ERROR "YAUI_LEGL and YAUI_LEGBM are mutually exclusive — pick one")
+endif()
 
 # ---------------------------------------------------------------------------
 # Platform detection
@@ -139,14 +145,34 @@ target_link_libraries(yauiclient PRIVATE ZLIB::ZLIB)
 # ---------------------------------------------------------------------------
 # GLFW3
 # ---------------------------------------------------------------------------
-find_package(glfw3 QUIET)
-if(glfw3_FOUND)
-  target_link_libraries(yauiclient PRIVATE glfw)
+if(NOT YAUI_LEGBM)
+  find_package(glfw3 QUIET)
+  if(glfw3_FOUND)
+    target_link_libraries(yauiclient PRIVATE glfw)
+  else()
+    pkg_check_modules(GLFW3 REQUIRED glfw3)
+    target_include_directories(yauiclient PRIVATE ${GLFW3_INCLUDE_DIRS})
+    target_link_libraries(yauiclient PRIVATE ${GLFW3_LIBRARIES})
+    target_link_directories(yauiclient PRIVATE ${GLFW3_LIBRARY_DIRS})
+  endif()
 else()
-  pkg_check_modules(GLFW3 REQUIRED glfw3)
-  target_include_directories(yauiclient PRIVATE ${GLFW3_INCLUDE_DIRS})
-  target_link_libraries(yauiclient PRIVATE ${GLFW3_LIBRARIES})
-  target_link_directories(yauiclient PRIVATE ${GLFW3_LIBRARY_DIRS})
+  # GBM path: try GLFW with Wayland/EGL backend first (Option A)
+  # Falls back gracefully if not found — Option C uses direct GBM/EGL
+  find_package(glfw3 QUIET)
+  if(glfw3_FOUND)
+    target_link_libraries(yauiclient PRIVATE glfw)
+    message(STATUS "YAUI_LEGBM: GLFW found — using Wayland/EGL backend (Option A)")
+  else()
+    pkg_check_modules(GLFW3 QUIET glfw3)
+    if(GLFW3_FOUND)
+      target_include_directories(yauiclient PRIVATE ${GLFW3_INCLUDE_DIRS})
+      target_link_libraries(yauiclient PRIVATE ${GLFW3_LIBRARIES})
+      target_link_directories(yauiclient PRIVATE ${GLFW3_LIBRARY_DIRS})
+      message(STATUS "YAUI_LEGBM: GLFW found via pkg-config (Option A)")
+    else()
+      message(STATUS "YAUI_LEGBM: GLFW not found — direct GBM/EGL path (Option C)")
+    endif()
+  endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -159,17 +185,47 @@ if(PLATFORM_WINDOWS)
 endif()
 
 # ---------------------------------------------------------------------------
-# OpenGL
+# OpenGL / GLES
 # ---------------------------------------------------------------------------
-find_package(OpenGL REQUIRED)
-target_link_libraries(yauiclient PRIVATE OpenGL::GL)
+if(YAUI_LEGBM)
+  # GBM/GLES path — link EGL, GLESv2, gbm, drm directly
+  # These are in the base LE Generic image sysroot, no find_package needed
+  pkg_check_modules(GBM   REQUIRED gbm)
+  pkg_check_modules(EGL   REQUIRED egl)
+  pkg_check_modules(GLES2 REQUIRED glesv2)
+  pkg_check_modules(DRM   REQUIRED libdrm)
+
+  target_include_directories(yauiclient PRIVATE
+    ${GBM_INCLUDE_DIRS}
+    ${EGL_INCLUDE_DIRS}
+    ${GLES2_INCLUDE_DIRS}
+    ${DRM_INCLUDE_DIRS}
+  )
+  target_link_libraries(yauiclient PRIVATE
+    ${GBM_LIBRARIES}
+    ${EGL_LIBRARIES}
+    ${GLES2_LIBRARIES}
+    ${DRM_LIBRARIES}
+  )
+  target_link_directories(yauiclient PRIVATE
+    ${GBM_LIBRARY_DIRS}
+    ${EGL_LIBRARY_DIRS}
+    ${GLES2_LIBRARY_DIRS}
+    ${DRM_LIBRARY_DIRS}
+  )
+  target_compile_definitions(yauiclient PRIVATE YAUI_LEGBM)
+  message(STATUS "YAUI_LEGBM: GBM/GLES/EGL/DRM linked")
+else()
+  find_package(OpenGL REQUIRED)
+  target_link_libraries(yauiclient PRIVATE OpenGL::GL)
+endif()
 
 # ---------------------------------------------------------------------------
 # cpr + libcurl
 # ---------------------------------------------------------------------------
 if(PLATFORM_LINUX OR PLATFORM_MACOS)
   find_package(cpr QUIET)
-    if(NOT cpr_FOUND AND NOT YAUI_LEGL)
+  if(NOT cpr_FOUND AND NOT YAUI_LEGL AND NOT YAUI_LEGBM)
     message(STATUS "cpr not found as system package - fetching via FetchContent")
     include(FetchContent)
     FetchContent_Declare(
@@ -178,7 +234,7 @@ if(PLATFORM_LINUX OR PLATFORM_MACOS)
       GIT_TAG        1.14.2
     )
     set(CPR_USE_SYSTEM_CURL ON CACHE BOOL "" FORCE)
-    set(CPR_ENABLE_SSL OFF CACHE BOOL "" FORCE)   # let system curl handle SSL
+    set(CPR_ENABLE_SSL OFF CACHE BOOL "" FORCE)
     set(CPR_USE_SYSTEM_CURL ON CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(cpr)
   endif()
@@ -215,23 +271,15 @@ if(PLATFORM_WINDOWS)
 
 elseif(PLATFORM_LINUX)
   target_link_libraries(yauiclient PRIVATE dl pthread)
-  pkg_check_modules(LIBBLURAY QUIET libbluray)
-  if(LIBBLURAY_FOUND)
-    target_link_libraries(yauiclient PRIVATE ${LIBBLURAY_LIBRARIES})
-    target_link_directories(yauiclient PRIVATE ${LIBBLURAY_LIBRARY_DIRS})
-  elseif(NOT YAUI_LEGL)
-    target_link_libraries(yauiclient PRIVATE bluray)
+
+  if(YAUI_LEGL)
+    target_compile_definitions(yauiclient PRIVATE YAUI_LEGL)
   endif()
-  find_package(JPEG QUIET)
-  if(NOT YAUI_LEGL)
-    find_package(JPEG QUIET)
-    if(JPEG_FOUND)
-      target_link_libraries(yauiclient PRIVATE JPEG::JPEG)
-    endif()
-  endif()
+
   if(YAUI_RPI)
     target_compile_definitions(yauiclient PRIVATE YAUI_RPI)
   endif()
+
   target_compile_options(yauiclient PRIVATE -Wall -Wextra -Wno-unused-parameter)
   set_target_properties(yauiclient PROPERTIES
     BUILD_RPATH "$ORIGIN"

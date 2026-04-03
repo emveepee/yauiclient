@@ -280,6 +280,10 @@ elseif(PLATFORM_LINUX)
     target_compile_definitions(yauiclient PRIVATE YAUI_RPI)
   endif()
 
+  if(NOT YAUI_LEGBM)
+    target_link_libraries(yauiclient PRIVATE X11 Xfixes)
+  endif()
+
   target_compile_options(yauiclient PRIVATE -Wall -Wextra -Wno-unused-parameter)
   set_target_properties(yauiclient PROPERTIES
     BUILD_RPATH "$ORIGIN"

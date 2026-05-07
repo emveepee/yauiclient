@@ -23,6 +23,7 @@ option(YAUI_RPI  "Raspberry Pi family target" OFF)
 option(YAUI_LEGL "LibreELEC X11/OpenGL target build (Generic-legacy)" OFF)
 option(YAUI_LEGBM "LibreELEC GBM/GLES target build (Generic non-legacy)" OFF)
 option(YAUI_WAYLAND "Generic Wayland target build (Ubuntu/Debian/Arch desktop, Phase 8)" OFF)
+option(YAUI_DEB_LAYOUT "Use Debian package layout for rpath (/usr/lib/yauiclient/lib)" OFF)
 
 # Validate — LEGL, LEGBM and WAYLAND are mutually exclusive
 if(YAUI_LEGL AND YAUI_LEGBM)
@@ -367,29 +368,40 @@ elseif(PLATFORM_LINUX)
       PROPERTIES GENERATED TRUE)
     target_include_directories(yauiclient PRIVATE "${WL_PROTO_DIR}")
 
-    # Override the default $ORIGIN rpath (which is right for the dev tree
-    # next to libmpv.so but wrong once installed via .deb). The Debian
-    # package layout puts yauiclient at /usr/bin/yauiclient and bundles
-    # libmpv.so* + libplacebo + libdisplay-info etc. under
-    # /usr/lib/yauiclient/lib/, which $ORIGIN/../lib/yauiclient/lib
-    # resolves to.
+    # rpath: where this binary should look for libmpv and its bundled deps.
+    # Two layouts supported:
+    #   default                bin/Release/yauiclient with libs alongside
+    #                          -> $ORIGIN
+    #   -DYAUI_DEB_LAYOUT=ON   /usr/bin/yauiclient with libs in
+    #                          /usr/lib/yauiclient/lib
+    #                          -> $ORIGIN/../lib/yauiclient/lib
+    # BUILD_WITH_INSTALL_RPATH=TRUE makes the build-tree binary use
+    # INSTALL_RPATH directly instead of CMake's separate build-tree rpath
+    # logic, so we get a clean, relocatable $ORIGIN with no absolute paths
+    # and no trailing-colon artefacts.
+    if(YAUI_DEB_LAYOUT)
+      set(_yc_rpath "\$ORIGIN/../lib/yauiclient/lib")
+    else()
+      set(_yc_rpath "\$ORIGIN")
+    endif()
     set_target_properties(yauiclient PROPERTIES
-      INSTALL_RPATH "$ORIGIN/../lib/yauiclient/lib"
-      BUILD_RPATH   "${LIBMPV_SDK_DIR}/lib")
+      BUILD_WITH_INSTALL_RPATH TRUE
+      BUILD_RPATH   "${_yc_rpath}"
+      INSTALL_RPATH "${_yc_rpath}")
   endif()
 
   target_compile_options(yauiclient PRIVATE -Wall -Wextra -Wno-unused-parameter)
   if(NOT YAUI_WAYLAND)
     # Default rpath for LE / RPi / dev-tree builds where libmpv.so sits in
     # the same dir as the binary. The YAUI_WAYLAND branch above sets its
-    # own rpath pointing at /usr/lib/yauiclient/lib for the .deb layout.
+    # own rpath honoring -DYAUI_DEB_LAYOUT for the .deb layout.
+    # BUILD_WITH_INSTALL_RPATH=TRUE makes the build-tree binary use
+    # INSTALL_RPATH directly so $ORIGIN is the same in the build tree
+    # and after install (no absolute paths, no trailing-colon artefacts).
     set_target_properties(yauiclient PROPERTIES
-      BUILD_RPATH "$ORIGIN"
-      INSTALL_RPATH "$ORIGIN"
-      BUILD_WITH_INSTALL_RPATH FALSE
-      SKIP_BUILD_RPATH FALSE
-      BUILD_RPATH_USE_ORIGIN TRUE
-    )
+      BUILD_WITH_INSTALL_RPATH TRUE
+      BUILD_RPATH   "\$ORIGIN"
+      INSTALL_RPATH "\$ORIGIN")
   endif()
 
 elseif(PLATFORM_MACOS)

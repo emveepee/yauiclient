@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
 
-project(yauiclient VERSION 1.0.0 LANGUAGES CXX)
+project(yauiclient VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_SKIP_RPATH FALSE)
 set(CMAKE_SKIP_INSTALL_RPATH FALSE)
@@ -22,11 +22,15 @@ set(LIBMPV_SDK_DIR "${CMAKE_SOURCE_DIR}/sdk" CACHE PATH
 option(YAUI_RPI  "Raspberry Pi family target" OFF)
 option(YAUI_LEGL "LibreELEC X11/OpenGL target build (Generic-legacy)" OFF)
 option(YAUI_LEGBM "LibreELEC GBM/GLES target build (Generic non-legacy)" OFF)
-option(YAUI_LEGBMPI "LibreELEC RPi GBM/GLES target (aarch64/arm)" OFF)
+option(YAUI_WAYLAND "Generic Wayland target build (Ubuntu/Debian/Arch desktop, Phase 8)" OFF)
 
-# Validate — LEGL and LEGBM are mutually exclusive
+# Validate — LEGL, LEGBM and WAYLAND are mutually exclusive
 if(YAUI_LEGL AND YAUI_LEGBM)
   message(FATAL_ERROR "YAUI_LEGL and YAUI_LEGBM are mutually exclusive — pick one")
+endif()
+if(YAUI_WAYLAND AND (YAUI_LEGL OR YAUI_LEGBM OR YAUI_RPI))
+  message(FATAL_ERROR
+    "YAUI_WAYLAND is mutually exclusive with YAUI_LEGL/YAUI_LEGBM/YAUI_RPI — pick one")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -57,6 +61,10 @@ set(SOURCES
 
 if(PLATFORM_WINDOWS)
   list(APPEND SOURCES src/WinMain.cpp)
+endif()
+
+if(YAUI_WAYLAND)
+  list(APPEND SOURCES src/WaylandIdleInhibit.cpp)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -157,15 +165,22 @@ if(NOT YAUI_LEGBM)
     target_link_directories(yauiclient PRIVATE ${GLFW3_LIBRARY_DIRS})
   endif()
 else()
-  # GLFW — glfw-plus (kmsdrm) under YAUI_LEGBM, standard glfw otherwise
+  # GBM path: try GLFW with Wayland/EGL backend first (Option A)
+  # Falls back gracefully if not found — Option C uses direct GBM/EGL
   find_package(glfw3 QUIET)
   if(glfw3_FOUND)
     target_link_libraries(yauiclient PRIVATE glfw)
+    message(STATUS "YAUI_LEGBM: GLFW found — using Wayland/EGL backend (Option A)")
   else()
-    pkg_check_modules(GLFW3 REQUIRED glfw3)
-    target_include_directories(yauiclient PRIVATE ${GLFW3_INCLUDE_DIRS})
-    target_link_libraries(yauiclient PRIVATE ${GLFW3_LIBRARIES})
-    target_link_directories(yauiclient PRIVATE ${GLFW3_LIBRARY_DIRS})
+    pkg_check_modules(GLFW3 QUIET glfw3)
+    if(GLFW3_FOUND)
+      target_include_directories(yauiclient PRIVATE ${GLFW3_INCLUDE_DIRS})
+      target_link_libraries(yauiclient PRIVATE ${GLFW3_LIBRARIES})
+      target_link_directories(yauiclient PRIVATE ${GLFW3_LIBRARY_DIRS})
+      message(STATUS "YAUI_LEGBM: GLFW found via pkg-config (Option A)")
+    else()
+      message(STATUS "YAUI_LEGBM: GLFW not found — direct GBM/EGL path (Option C)")
+    endif()
   endif()
 endif()
 
@@ -274,18 +289,108 @@ elseif(PLATFORM_LINUX)
     target_compile_definitions(yauiclient PRIVATE YAUI_RPI)
   endif()
 
-  if(NOT YAUI_LEGBM)
+  if(NOT YAUI_LEGBM AND NOT YAUI_WAYLAND)
     target_link_libraries(yauiclient PRIVATE X11 Xfixes)
   endif()
 
+  # -------------------------------------------------------------------------
+  # YAUI_WAYLAND — Phase 8 generic Wayland desktop build
+  # -------------------------------------------------------------------------
+  # Targets Ubuntu 24.04+ / Debian 12+ / Arch with native Wayland (Mutter /
+  # KWin / wlroots-based compositors). GLFW 3.4 is required for the
+  # GLFW_PLATFORM init hint and the GLFW_WAYLAND_APP_ID window hint string.
+  # The libmpv 0.41.0 SDK from the Phase 8 wiki tarball is consumed via the
+  # existing LIBMPV_SDK_DIR mechanism above; the matching runtime tarball
+  # gets bundled into the .deb at /usr/lib/yauiclient/lib/, so we override
+  # the default $ORIGIN rpath to reach it from /usr/bin/yauiclient.
+  if(YAUI_WAYLAND)
+    target_compile_definitions(yauiclient PRIVATE YAUI_WAYLAND)
+
+    # wayland-client and wayland-protocols (data-only XML repository).
+    pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
+    pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.41)
+    target_link_libraries(yauiclient PRIVATE PkgConfig::WAYLAND_CLIENT)
+
+    # Locate wayland-scanner and the protocol XML directory. The scanner
+    # binary path is exposed under the 'wayland_scanner' variable in the
+    # wayland-scanner.pc file; older layouts only expose 'bindir'.
+    pkg_check_modules(WAYLAND_SCANNER_PC REQUIRED wayland-scanner)
+    pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
+    pkg_get_variable(WAYLAND_SCANNER_BIN wayland-scanner wayland_scanner)
+    if(NOT WAYLAND_SCANNER_BIN)
+      pkg_get_variable(WS_BINDIR wayland-scanner bindir)
+      find_program(WAYLAND_SCANNER_BIN wayland-scanner HINTS "${WS_BINDIR}")
+    endif()
+    if(NOT WAYLAND_SCANNER_BIN)
+      message(FATAL_ERROR
+        "wayland-scanner not found — install libwayland-bin / wayland-scanner")
+    endif()
+    message(STATUS "YAUI_WAYLAND: wayland-scanner at ${WAYLAND_SCANNER_BIN}")
+    message(STATUS "YAUI_WAYLAND: wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
+
+    # idle-inhibit-unstable-v1 protocol — generate client header + private
+    # code into the build tree, then add them to the target sources.
+    set(IDLE_INHIBIT_XML
+      "${WAYLAND_PROTOCOLS_DIR}/unstable/idle-inhibit/idle-inhibit-unstable-v1.xml")
+    if(NOT EXISTS "${IDLE_INHIBIT_XML}")
+      message(FATAL_ERROR
+        "idle-inhibit-unstable-v1.xml not found at ${IDLE_INHIBIT_XML}")
+    endif()
+    set(WL_PROTO_DIR "${CMAKE_BINARY_DIR}/wayland-protocols")
+    set(IDLE_INHIBIT_HEADER
+      "${WL_PROTO_DIR}/idle-inhibit-unstable-v1-client-protocol.h")
+    set(IDLE_INHIBIT_SOURCE
+      "${WL_PROTO_DIR}/idle-inhibit-unstable-v1-protocol.c")
+
+    add_custom_command(
+      OUTPUT  "${IDLE_INHIBIT_HEADER}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${WL_PROTO_DIR}"
+      COMMAND "${WAYLAND_SCANNER_BIN}" client-header
+              "${IDLE_INHIBIT_XML}" "${IDLE_INHIBIT_HEADER}"
+      DEPENDS "${IDLE_INHIBIT_XML}"
+      VERBATIM)
+
+    add_custom_command(
+      OUTPUT  "${IDLE_INHIBIT_SOURCE}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${WL_PROTO_DIR}"
+      COMMAND "${WAYLAND_SCANNER_BIN}" private-code
+              "${IDLE_INHIBIT_XML}" "${IDLE_INHIBIT_SOURCE}"
+      DEPENDS "${IDLE_INHIBIT_XML}"
+      VERBATIM)
+
+    target_sources(yauiclient PRIVATE
+      "${IDLE_INHIBIT_HEADER}"
+      "${IDLE_INHIBIT_SOURCE}")
+    set_source_files_properties(
+      "${IDLE_INHIBIT_HEADER}"
+      "${IDLE_INHIBIT_SOURCE}"
+      PROPERTIES GENERATED TRUE)
+    target_include_directories(yauiclient PRIVATE "${WL_PROTO_DIR}")
+
+    # Override the default $ORIGIN rpath (which is right for the dev tree
+    # next to libmpv.so but wrong once installed via .deb). The Debian
+    # package layout puts yauiclient at /usr/bin/yauiclient and bundles
+    # libmpv.so* + libplacebo + libdisplay-info etc. under
+    # /usr/lib/yauiclient/lib/, which $ORIGIN/../lib/yauiclient/lib
+    # resolves to.
+    set_target_properties(yauiclient PROPERTIES
+      INSTALL_RPATH "$ORIGIN/../lib/yauiclient/lib"
+      BUILD_RPATH   "${LIBMPV_SDK_DIR}/lib")
+  endif()
+
   target_compile_options(yauiclient PRIVATE -Wall -Wextra -Wno-unused-parameter)
-  set_target_properties(yauiclient PROPERTIES
-    BUILD_RPATH "$ORIGIN"
-    INSTALL_RPATH "$ORIGIN"
-    BUILD_WITH_INSTALL_RPATH FALSE
-    SKIP_BUILD_RPATH FALSE
-    BUILD_RPATH_USE_ORIGIN TRUE
-  )
+  if(NOT YAUI_WAYLAND)
+    # Default rpath for LE / RPi / dev-tree builds where libmpv.so sits in
+    # the same dir as the binary. The YAUI_WAYLAND branch above sets its
+    # own rpath pointing at /usr/lib/yauiclient/lib for the .deb layout.
+    set_target_properties(yauiclient PROPERTIES
+      BUILD_RPATH "$ORIGIN"
+      INSTALL_RPATH "$ORIGIN"
+      BUILD_WITH_INSTALL_RPATH FALSE
+      SKIP_BUILD_RPATH FALSE
+      BUILD_RPATH_USE_ORIGIN TRUE
+    )
+  endif()
 
 elseif(PLATFORM_MACOS)
   target_compile_definitions(yauiclient PRIVATE GL_SILENCE_DEPRECATION)

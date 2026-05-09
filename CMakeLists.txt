@@ -394,14 +394,21 @@ elseif(PLATFORM_LINUX)
   if(NOT YAUI_WAYLAND)
     # Default rpath for LE / RPi / dev-tree builds where libmpv.so sits in
     # the same dir as the binary. The YAUI_WAYLAND branch above sets its
-    # own rpath honoring -DYAUI_DEB_LAYOUT for the .deb layout.
+    # own rpath honoring -DYAUI_DEB_LAYOUT for the .deb layout; this branch
+    # also honors YAUI_DEB_LAYOUT so the X11 .deb flavour (yauiclient-x11)
+    # can bundle libmpv into /usr/lib/yauiclient/lib/.
     # BUILD_WITH_INSTALL_RPATH=TRUE makes the build-tree binary use
     # INSTALL_RPATH directly so $ORIGIN is the same in the build tree
     # and after install (no absolute paths, no trailing-colon artefacts).
+    if(YAUI_DEB_LAYOUT)
+      set(_yc_rpath_x11 "\$ORIGIN/../lib/yauiclient/lib")
+    else()
+      set(_yc_rpath_x11 "\$ORIGIN")
+    endif()
     set_target_properties(yauiclient PROPERTIES
       BUILD_WITH_INSTALL_RPATH TRUE
-      BUILD_RPATH   "\$ORIGIN"
-      INSTALL_RPATH "\$ORIGIN")
+      BUILD_RPATH   "${_yc_rpath_x11}"
+      INSTALL_RPATH "${_yc_rpath_x11}")
   endif()
 
 elseif(PLATFORM_MACOS)

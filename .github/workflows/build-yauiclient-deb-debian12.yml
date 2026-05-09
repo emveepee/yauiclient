@@ -1,0 +1,129 @@
+name: Build yauiclient .deb (Debian 12, three flavours)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      libmpv_version:
+        description: 'libmpv tarball version (must match a -debian12 release on the wiki)'
+        default: 'v0.41.0'
+        type: string
+
+jobs:
+  build-deb:
+    name: Build all three amd64 .debs in debian:12
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12
+
+    permissions:
+      contents: read
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LIBMPV_VERSION: ${{ inputs.libmpv_version || 'v0.41.0' }}
+
+    steps:
+      - name: Install base tooling
+        run: |
+          apt-get update
+          # 'debhelper' (not 'debhelper-compat' - that's a virtual package only
+          # usable as a Build-Depends declaration). dpkg-dev pulls in
+          # dpkg-buildpackage; devscripts adds dch and friends; fakeroot is
+          # needed for non-root packaging. libmpv-dev is required for the
+          # yauiclient-wayland-system build.
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl xz-utils build-essential \
+            debhelper dpkg-dev devscripts fakeroot \
+            cmake ninja-build pkg-config \
+            libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
+            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
+            libxss-dev libxpresent-dev \
+            libwayland-dev libwayland-bin wayland-protocols \
+            libmpv-dev \
+            lintian
+
+      - name: Checkout yauiclient
+        uses: actions/checkout@v4
+
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory '*'
+
+      - name: Download libmpv SDK + runtime
+        run: |
+          mkdir -p sdk
+          BASE="https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder"
+          SDK="libmpv-sdk-${LIBMPV_VERSION}-linux-x86_64-debian12.tar.gz"
+          RUNTIME="libmpv-runtime-${LIBMPV_VERSION}-linux-x86_64-debian12.tar.gz"
+
+          echo "Fetching ${SDK}"
+          curl -fL --retry 3 -o "/tmp/${SDK}" "${BASE}/${SDK}"
+          echo "Fetching ${RUNTIME}"
+          curl -fL --retry 3 -o "/tmp/${RUNTIME}" "${BASE}/${RUNTIME}"
+
+          tar xzf "/tmp/${SDK}" -C sdk/
+          tar xzf "/tmp/${RUNTIME}" -C sdk/lib/
+
+          echo "SDK contents:"
+          ls -la sdk/lib/
+
+      - name: Verify SDK is complete
+        run: |
+          test -f sdk/include/mpv/client.h || { echo "SDK missing headers"; exit 1; }
+          test -f sdk/lib/libmpv.so || { echo "Runtime missing libmpv.so"; exit 1; }
+          for so in libdav1d.so.6 libluajit-5.1.so.2 libjpeg.so.62 libdisplay-info.so.2; do
+            ls sdk/lib/${so}* >/dev/null 2>&1 || { echo "Runtime missing ${so}"; exit 1; }
+          done
+          echo "SDK looks good."
+
+      - name: Build .debs (all three flavours)
+        run: dpkg-buildpackage -b -uc -us -j"$(nproc)"
+
+      - name: Collect artefacts
+        run: |
+          mkdir -p out
+          mv ../yauiclient-*_*.deb out/
+          mv ../yauiclient_*.changes out/ 2>/dev/null || true
+          mv ../yauiclient_*.buildinfo out/ 2>/dev/null || true
+          ls -la out/
+
+      - name: Run lintian (informational)
+        run: |
+          for f in out/*.deb; do
+            echo "::group::lintian $f"
+            lintian --no-tag-display-limit "$f" || true
+            echo "::endgroup::"
+          done
+
+      - name: Summarise build
+        run: |
+          {
+            echo "## yauiclient .deb build summary"
+            echo ""
+            echo "**libmpv version (bundled flavours):** \`${LIBMPV_VERSION}\`"
+            echo ""
+            echo "### Artefacts"
+            echo ""
+            echo '```'
+            ls -la out/
+            echo '```'
+            echo ""
+            for f in out/*.deb; do
+              echo "### $(basename "$f")"
+              echo ""
+              echo '```'
+              dpkg-deb -I "$f" | head -25
+              echo '```'
+              echo ""
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload .deb artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yauiclient-debs-${{ env.LIBMPV_VERSION }}
+          path: out/*
+          retention-days: 30
+          if-no-files-found: error

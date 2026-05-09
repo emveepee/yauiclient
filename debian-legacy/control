@@ -1,0 +1,57 @@
+Source: yauiclient
+Section: video
+Priority: optional
+Maintainer: Martin <noreply@pinstripe.ca>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               pkg-config,
+               libglfw3-dev (>= 3.3),
+               libfmt-dev,
+               nlohmann-json3-dev,
+               zlib1g-dev,
+               libcurl4-openssl-dev,
+               libluajit-5.1-dev,
+               libass-dev,
+               libxss-dev,
+               libxpresent-dev
+Standards-Version: 4.5.1
+Homepage: https://github.com/emveepee/yauiclient
+Vcs-Browser: https://github.com/emveepee/yauiclient
+Vcs-Git: https://github.com/emveepee/yauiclient.git
+Rules-Requires-Root: no
+
+Package: yauiclient-x11-legacy
+Architecture: amd64
+Provides: yauiclient
+Conflicts: yauiclient-x11, yauiclient-wayland, yauiclient-wayland-system
+Replaces: yauiclient-x11, yauiclient-wayland, yauiclient-wayland-system
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libglfw3 (>= 3.3),
+         libgl1,
+         libva2,
+         libva-drm2,
+         libva-x11-2,
+         libx11-6,
+         libxext6,
+         libxrandr2,
+         libxpresent1,
+         libxss1,
+         libxfixes3,
+         libasound2,
+         libpulse0 | libpipewire-0.3-0
+Description: NextPVR media player client (X11, Debian 11 legacy)
+ yauiclient is a 10-foot-UI media player client for NextPVR. This flavour
+ targets older Debian-family distributions (Debian 11+, Ubuntu 20.04+,
+ Linux Mint 20+) and bundles its own libmpv 0.41 runtime plus FFmpeg 7
+ codec libraries in /usr/lib/yauiclient/lib/, isolated from the system
+ mpv install. AV1, HEVC and AVC are supported on Intel and AMD GPUs
+ through VAAPI; VVC requires the modern (glibc 2.36+) Debian 12 build.
+ .
+ This package is built on Debian 11 with glibc 2.31 for maximum
+ compatibility with older systems. For Debian 12+ / Ubuntu 24.04+ users,
+ prefer the yauiclient-x11 package built against the modern toolchain.
+ .
+ This package installs to /usr/bin/yauiclient and conflicts with the other
+ yauiclient flavours; only one can be installed at a time.

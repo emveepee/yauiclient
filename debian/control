@@ -1,0 +1,120 @@
+Source: yauiclient
+Section: video
+Priority: optional
+Maintainer: Martin <noreply@pinstripe.ca>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               pkg-config,
+               libglfw3-dev (>= 3.4),
+               libfmt-dev,
+               nlohmann-json3-dev,
+               zlib1g-dev,
+               libcurl4-openssl-dev,
+               libluajit-5.1-dev,
+               libass-dev,
+               libxss-dev,
+               libxpresent-dev,
+               libwayland-dev,
+               libwayland-bin,
+               wayland-protocols (>= 1.41),
+               libmpv-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/emveepee/yauiclient
+Vcs-Browser: https://github.com/emveepee/yauiclient
+Vcs-Git: https://github.com/emveepee/yauiclient.git
+Rules-Requires-Root: no
+
+Package: yauiclient-x11
+Architecture: amd64
+Provides: yauiclient
+Conflicts: yauiclient-wayland, yauiclient-wayland-system
+Replaces: yauiclient-wayland, yauiclient-wayland-system
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libglfw3 (>= 3.4),
+         libgl1,
+         libva2,
+         libva-drm2,
+         libva-x11-2,
+         libx11-6,
+         libxext6,
+         libxrandr2,
+         libxpresent1,
+         libxss1,
+         libxfixes3,
+         libasound2 | libasound2t64,
+         libpulse0 | libpipewire-0.3-0
+Description: NextPVR media player client (X11, bundled libmpv)
+ yauiclient is a 10-foot-UI media player client for NextPVR. This flavour
+ targets X11 sessions and bundles its own libmpv 0.41 runtime plus FFmpeg 8
+ codec libraries in /usr/lib/yauiclient/lib/, isolated from the system mpv
+ install. VVC, AV1, HEVC and AVC are all supported on Intel and AMD GPUs
+ through VAAPI.
+ .
+ This package installs to /usr/bin/yauiclient and conflicts with the other
+ yauiclient flavours; only one can be installed at a time.
+
+Package: yauiclient-wayland
+Architecture: amd64
+Provides: yauiclient
+Conflicts: yauiclient-x11, yauiclient-wayland-system
+Replaces: yauiclient-x11, yauiclient-wayland-system
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libglfw3 (>= 3.4),
+         libwayland-client0,
+         libegl1,
+         libgl1,
+         libdrm2,
+         libgbm1,
+         libva2,
+         libva-drm2,
+         libva-wayland2,
+         libxkbcommon0,
+         libasound2 | libasound2t64,
+         libpulse0 | libpipewire-0.3-0
+Description: NextPVR media player client (Wayland, bundled libmpv)
+ yauiclient is a 10-foot-UI media player client for NextPVR. This flavour
+ targets Wayland sessions (Mutter, KWin, wlroots-based compositors) and
+ bundles its own libmpv 0.41 runtime plus FFmpeg 8 codec libraries in
+ /usr/lib/yauiclient/lib/, isolated from the system mpv install. VVC, AV1,
+ HEVC and AVC are all supported on Intel and AMD GPUs through VAAPI.
+ .
+ This package installs to /usr/bin/yauiclient and conflicts with the other
+ yauiclient flavours; only one can be installed at a time.
+
+Package: yauiclient-wayland-system
+Architecture: amd64
+Provides: yauiclient
+Conflicts: yauiclient-x11, yauiclient-wayland
+Replaces: yauiclient-x11, yauiclient-wayland
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libmpv2,
+         libglfw3 (>= 3.4),
+         libwayland-client0,
+         libegl1,
+         libgl1,
+         libdrm2,
+         libgbm1,
+         libva2,
+         libva-drm2,
+         libva-wayland2,
+         libxkbcommon0,
+         libasound2 | libasound2t64,
+         libpulse0 | libpipewire-0.3-0
+Description: NextPVR media player client (Wayland, system libmpv)
+ yauiclient is a 10-foot-UI media player client for NextPVR. This flavour
+ targets Wayland sessions and uses the system-installed libmpv2 instead
+ of bundling its own. Recommended for users who already have a working
+ mpv install and prefer to keep one libmpv on their system.
+ .
+ NOTE: this flavour declares only 'Depends: libmpv2' with no version
+ constraint. The yauiclient Wayland integration relies on GLFW 3.4 plus
+ a libmpv ABI close to 0.36+; older mpv versions (Ubuntu 24.04 ships
+ mpv 0.35, Debian 12 ships mpv 0.35) may exhibit playback issues. If you
+ hit problems, switch to yauiclient-wayland which bundles libmpv 0.41.
+ .
+ This package installs to /usr/bin/yauiclient and conflicts with the other
+ yauiclient flavours; only one can be installed at a time.

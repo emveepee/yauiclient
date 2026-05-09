@@ -1,0 +1,41 @@
+#!/bin/sh
+# postinst script for yauiclient (all flavours)
+# See: https://www.debian.org/doc/debian-policy/ap-flowcharts.html
+set -e
+
+case "$1" in
+    configure)
+        # First-install ($2 is empty); on upgrade $2 is the previously-installed
+        # version. Show the IR-remote notice only for fresh installs.
+        if [ -z "$2" ]; then
+            cat <<'EOF'
+
+yauiclient installed.
+
+NOTE: yauiclient reads /dev/input/event* devices for IR remote support
+(MCE, HDHomeRun, evdev-exposed receivers). To grant access without sudo,
+add yourself to the 'input' group:
+
+    sudo usermod -aG input "$USER"
+
+Then log out and back in for the group change to take effect.
+
+If you only use the keyboard or a USB HID remote that maps to standard
+keyboard scancodes, you can skip this step.
+
+EOF
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

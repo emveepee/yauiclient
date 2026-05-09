@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=yauiclient
+GenericName=NextPVR Client
+Comment=10-foot UI media player for NextPVR (X11)
+Exec=/usr/bin/yauiclient
+Icon=yauiclient
+Terminal=false
+Categories=AudioVideo;Player;TV;
+StartupNotify=true
+StartupWMClass=yauiclient
+Keywords=NextPVR;TV;Video;Recording;Streaming;PVR;

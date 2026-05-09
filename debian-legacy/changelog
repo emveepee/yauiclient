@@ -1,0 +1,7 @@
+yauiclient (1.0.0-1) unstable; urgency=medium
+
+  * Initial Debian 11 X11-only legacy build (Phase 9).
+  * Bundles libmpv 0.41.0 SDK + runtime in /usr/lib/yauiclient/lib/.
+  * Targets Debian 11+, Ubuntu 20.04+, Linux Mint 20+ (glibc 2.31+).
+
+ -- Martin <noreply@pinstripe.ca>  Sat, 09 May 2026 00:00:00 +0000

@@ -1,0 +1,162 @@
+#!/usr/bin/make -f
+# debian/rules — multi-binary build for yauiclient
+#
+# Builds three binary packages from one source by configuring CMake three
+# times into separate build dirs, then dispatching files to per-package
+# install trees:
+#
+#   yauiclient-x11             X11 + bundled libmpv      -> build/x11
+#   yauiclient-wayland         Wayland + bundled libmpv  -> build/wayland
+#   yauiclient-wayland-system  Wayland + system libmpv2  -> build/wayland-sys
+#
+# Bundled flavours copy the libmpv runtime tarball contents from sdk/lib/
+# into /usr/lib/yauiclient/lib/. The system flavour skips bundling and
+# Depends: libmpv2 from the archive.
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+include /usr/share/dpkg/architecture.mk
+
+SDK_DIR     = $(CURDIR)/sdk
+
+# Per-flavour build directories
+BUILD_X11   = build/x11
+BUILD_WL    = build/wayland
+BUILD_WLSYS = build/wayland-sys
+
+# Per-flavour install staging directories (CMake DESTDIR target)
+STAGE_X11   = $(CURDIR)/$(BUILD_X11)/install
+STAGE_WL    = $(CURDIR)/$(BUILD_WL)/install
+STAGE_WLSYS = $(CURDIR)/$(BUILD_WLSYS)/install
+
+# Per-package install trees
+PKG_X11     = debian/yauiclient-x11
+PKG_WL      = debian/yauiclient-wayland
+PKG_WLSYS   = debian/yauiclient-wayland-system
+
+# Bundle directories (only for the two bundled flavours)
+BUNDLE_X11  = $(PKG_X11)/usr/lib/yauiclient/lib
+BUNDLE_WL   = $(PKG_WL)/usr/lib/yauiclient/lib
+
+# Common CMake flags shared by all three flavours
+CMAKE_COMMON = -DCMAKE_BUILD_TYPE=Release \
+               -DCMAKE_INSTALL_PREFIX=/usr \
+               -G Ninja
+
+# Bundled-flavour libraries to copy from sdk/lib/. Each pattern must match
+# at least one file or the install step fails loudly (better than silently
+# shipping a partial bundle).
+BUNDLE_PATTERNS = libmpv.so libmpv.so.* \
+                  libavcodec.so.* libavformat.so.* libavutil.so.* \
+                  libavfilter.so.* libswresample.so.* libswscale.so.* \
+                  libplacebo.so.* libdisplay-info.so.* \
+                  libjpeg.so.62* libluajit-5.1.so.2* libdav1d.so.6*
+
+%:
+	dh $@
+
+# ---------------------------------------------------------------------------
+# Configure: three CMake invocations, three build dirs
+# ---------------------------------------------------------------------------
+override_dh_auto_configure:
+	# yauiclient-x11: X11 + bundled libmpv
+	cmake -B $(BUILD_X11) -S . $(CMAKE_COMMON) \
+	  -DYAUI_WAYLAND=OFF \
+	  -DYAUI_DEB_LAYOUT=ON \
+	  -DLIBMPV_SDK_DIR=$(SDK_DIR) \
+	  -DYAUICLIENT_USE_SYSTEM_MPV=OFF
+	# yauiclient-wayland: Wayland + bundled libmpv
+	cmake -B $(BUILD_WL) -S . $(CMAKE_COMMON) \
+	  -DYAUI_WAYLAND=ON \
+	  -DYAUI_DEB_LAYOUT=ON \
+	  -DLIBMPV_SDK_DIR=$(SDK_DIR) \
+	  -DYAUICLIENT_USE_SYSTEM_MPV=OFF
+	# yauiclient-wayland-system: Wayland + system libmpv2
+	cmake -B $(BUILD_WLSYS) -S . $(CMAKE_COMMON) \
+	  -DYAUI_WAYLAND=ON \
+	  -DYAUI_DEB_LAYOUT=OFF \
+	  -DYAUICLIENT_USE_SYSTEM_MPV=ON
+
+# ---------------------------------------------------------------------------
+# Build: three Ninja builds in parallel
+# ---------------------------------------------------------------------------
+override_dh_auto_build:
+	cmake --build $(BUILD_X11)   --parallel
+	cmake --build $(BUILD_WL)    --parallel
+	cmake --build $(BUILD_WLSYS) --parallel
+
+# ---------------------------------------------------------------------------
+# Install: stage each build into its own DESTDIR, then dispatch
+# ---------------------------------------------------------------------------
+override_dh_auto_install:
+	# Stage each build into its own install tree under build/<flavour>/install
+	DESTDIR=$(STAGE_X11)   cmake --install $(BUILD_X11)
+	DESTDIR=$(STAGE_WL)    cmake --install $(BUILD_WL)
+	DESTDIR=$(STAGE_WLSYS) cmake --install $(BUILD_WLSYS)
+
+	# Dispatch the binary into each package
+	install -D -m 0755 $(STAGE_X11)/usr/bin/yauiclient   $(PKG_X11)/usr/bin/yauiclient
+	install -D -m 0755 $(STAGE_WL)/usr/bin/yauiclient    $(PKG_WL)/usr/bin/yauiclient
+	install -D -m 0755 $(STAGE_WLSYS)/usr/bin/yauiclient $(PKG_WLSYS)/usr/bin/yauiclient
+
+	# Bundle libmpv runtime into the two bundled flavours
+	mkdir -p $(BUNDLE_X11) $(BUNDLE_WL)
+	set -e; \
+	for pat in $(BUNDLE_PATTERNS); do \
+	    found=0; \
+	    for f in $(SDK_DIR)/lib/$$pat; do \
+	        if [ -e "$$f" ] || [ -L "$$f" ]; then \
+	            cp -P "$$f" $(BUNDLE_X11)/; \
+	            cp -P "$$f" $(BUNDLE_WL)/; \
+	            found=1; \
+	        fi; \
+	    done; \
+	    if [ $$found -eq 0 ]; then \
+	        echo "ERROR: no files matched pattern '$$pat' in $(SDK_DIR)/lib/"; \
+	        exit 1; \
+	    fi; \
+	done
+
+	# Install desktop entries (per-flavour so the menu shows the right one)
+	install -D -m 0644 debian/yauiclient-x11.desktop \
+	  $(PKG_X11)/usr/share/applications/com.pinstripe.yauiclient.desktop
+	install -D -m 0644 debian/yauiclient-wayland.desktop \
+	  $(PKG_WL)/usr/share/applications/com.pinstripe.yauiclient.desktop
+	install -D -m 0644 debian/yauiclient-wayland.desktop \
+	  $(PKG_WLSYS)/usr/share/applications/com.pinstripe.yauiclient.desktop
+
+# ---------------------------------------------------------------------------
+# shlibdeps: bundled flavours look in their own bundle dir; system flavour
+# uses default search path so libmpv2 resolves to the archive package.
+# ---------------------------------------------------------------------------
+override_dh_shlibdeps:
+	dh_shlibdeps -pyauiclient-x11 \
+	  -l$(CURDIR)/$(BUNDLE_X11) \
+	  -- --ignore-missing-info
+	dh_shlibdeps -pyauiclient-wayland \
+	  -l$(CURDIR)/$(BUNDLE_WL) \
+	  -- --ignore-missing-info
+	dh_shlibdeps -pyauiclient-wayland-system \
+	  -- --ignore-missing-info
+
+# ---------------------------------------------------------------------------
+# dwz: the bundled .so files come from external builds with DWARF already
+# processed; dh_dwz fails on them with 'no debug info found'. Skip the
+# bundle path while still letting dh_dwz process the yauiclient binary.
+# ---------------------------------------------------------------------------
+override_dh_dwz:
+	dh_dwz -X /usr/lib/yauiclient/lib/
+
+# ---------------------------------------------------------------------------
+# strip: keep -dbgsym off for bundled libs so their build IDs don't collide
+# with the real upstream packages a user might have installed elsewhere.
+# ---------------------------------------------------------------------------
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
+
+# ---------------------------------------------------------------------------
+# Clean: nuke all three build dirs
+# ---------------------------------------------------------------------------
+override_dh_auto_clean:
+	rm -rf build/

@@ -1,0 +1,10 @@
+yauiclient (1.0.0-1) unstable; urgency=medium
+
+  * Initial Debian package release (Phase 9).
+  * Three binary flavours from one source:
+    - yauiclient-x11: X11 with bundled libmpv 0.41.0
+    - yauiclient-wayland: Wayland with bundled libmpv 0.41.0
+    - yauiclient-wayland-system: Wayland with system libmpv2
+  * Targets Debian 12+, Ubuntu 24.04+ (glibc 2.36+).
+
+ -- Martin <noreply@pinstripe.ca>  Sat, 09 May 2026 00:00:00 +0000

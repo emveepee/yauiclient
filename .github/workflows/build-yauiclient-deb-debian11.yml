@@ -1,0 +1,161 @@
+name: Build yauiclient .deb (Debian 11 legacy, X11 only)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      libmpv_version:
+        description: 'libmpv tarball version (legacy, no -debian12 suffix)'
+        default: 'v0.41.0'
+        type: string
+
+jobs:
+  build-deb-legacy:
+    name: Build amd64 .deb in debian:11
+    runs-on: ubuntu-latest
+    container:
+      image: debian:11
+
+    permissions:
+      contents: read
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LIBMPV_VERSION: ${{ inputs.libmpv_version || 'v0.41.0' }}
+
+    steps:
+      - name: Install base tooling
+        # Debian 11's stock cmake is 3.18 but our CMakeLists requires 3.20.
+        # bullseye-backports has cmake 3.25 which is what we need. Set up
+        # the backports apt source first, then install cmake from it.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates
+          echo 'deb http://deb.debian.org/debian bullseye-backports main' \
+            > /etc/apt/sources.list.d/backports.list
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            -t bullseye-backports cmake
+          # Everything else from regular bullseye repos
+          apt-get install -y --no-install-recommends \
+            git curl xz-utils build-essential \
+            debhelper dpkg-dev devscripts fakeroot \
+            ninja-build pkg-config \
+            libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
+            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
+            libxss-dev libxpresent-dev \
+            lintian
+          cmake --version
+
+      - name: Checkout yauiclient
+        uses: actions/checkout@v4
+
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory '*'
+
+      - name: Download legacy libmpv SDK + runtime
+        # The 'legacy' tarballs are the no-suffix ones (built on Debian 11
+        # for glibc 2.31 compatibility), distinct from the -debian12 ones.
+        run: |
+          mkdir -p sdk
+          BASE="https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder"
+          SDK="libmpv-sdk-${LIBMPV_VERSION}-linux-x86_64.tar.gz"
+          RUNTIME="libmpv-runtime-${LIBMPV_VERSION}-linux-x86_64.tar.gz"
+
+          echo "Fetching ${SDK}"
+          curl -fL --retry 3 -o "/tmp/${SDK}" "${BASE}/${SDK}"
+          echo "Fetching ${RUNTIME}"
+          curl -fL --retry 3 -o "/tmp/${RUNTIME}" "${BASE}/${RUNTIME}"
+
+          tar xzf "/tmp/${SDK}" -C sdk/
+          tar xzf "/tmp/${RUNTIME}" -C sdk/lib/
+
+          echo "SDK contents:"
+          ls -la sdk/lib/
+
+      - name: Verify SDK is complete
+        run: |
+          test -f sdk/include/mpv/client.h || { echo "SDK missing headers"; exit 1; }
+          test -f sdk/lib/libmpv.so || { echo "Runtime missing libmpv.so"; exit 1; }
+          # FFmpeg 7.1.1 SONAMEs (avcodec.61, avformat.61, etc.) are loose-
+          # globbed in debian-legacy/rules; we just confirm at least one
+          # libavcodec.so.* is present here.
+          ls sdk/lib/libavcodec.so.* >/dev/null 2>&1 || { echo "Runtime missing libavcodec"; exit 1; }
+          echo "SDK looks good."
+
+      - name: Swap debian-legacy/ into debian/
+        # dpkg-buildpackage hardcodes 'debian/' so we move the legacy tree
+        # into place. The original debian/ (modern) is set aside for the
+        # duration of the build.
+        run: |
+          if [ -d debian ]; then
+            mv debian debian.modern.saved
+          fi
+          if [ ! -d debian-legacy ]; then
+            echo "ERROR: debian-legacy/ not found"; exit 1
+          fi
+          cp -a debian-legacy debian
+
+      - name: Build .deb
+        run: dpkg-buildpackage -b -uc -us -j"$(nproc)"
+
+      - name: Restore debian/ swap (cleanup)
+        # Always run, even on prior step failure, so artefacts collection
+        # below sees the right tree state.
+        if: always()
+        run: |
+          rm -rf debian
+          if [ -d debian.modern.saved ]; then
+            mv debian.modern.saved debian
+          fi
+
+      - name: Collect artefacts
+        run: |
+          mkdir -p out
+          mv ../yauiclient-x11-legacy_*.deb out/
+          mv ../yauiclient_*.changes out/ 2>/dev/null || true
+          mv ../yauiclient_*.buildinfo out/ 2>/dev/null || true
+          ls -la out/
+
+      - name: Run lintian (informational)
+        run: |
+          for f in out/*.deb; do
+            echo "::group::lintian $f"
+            lintian --no-tag-display-limit "$f" || true
+            echo "::endgroup::"
+          done
+
+      - name: Summarise build
+        run: |
+          {
+            echo "## yauiclient-x11-legacy .deb build summary"
+            echo ""
+            echo "**Build base:** Debian 11 (glibc 2.31)"
+            echo "**libmpv version:** \`${LIBMPV_VERSION}\` (legacy, FFmpeg 7.1.1)"
+            echo "**Compatible with:** Debian 11+, Ubuntu 20.04+, Mint 20+"
+            echo ""
+            echo "### Artefacts"
+            echo ""
+            echo '```'
+            ls -la out/
+            echo '```'
+            echo ""
+            for f in out/*.deb; do
+              echo "### $(basename "$f")"
+              echo ""
+              echo '```'
+              dpkg-deb -I "$f" | head -25
+              echo '```'
+              echo ""
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload .deb artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yauiclient-x11-legacy-deb-${{ env.LIBMPV_VERSION }}
+          path: out/*
+          retention-days: 30
+          if-no-files-found: error

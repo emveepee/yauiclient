@@ -308,8 +308,11 @@ elseif(PLATFORM_LINUX)
     target_compile_definitions(yauiclient PRIVATE YAUI_WAYLAND)
 
     # wayland-client and wayland-protocols (data-only XML repository).
+    # The only protocol used is idle-inhibit-unstable-v1.xml, present since
+    # wayland-protocols 1.14 (2017). Bookworm ships 1.31, jammy 1.25 -
+    # both well above the floor. The pin doesn't need to be tight.
     pkg_check_modules(WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
-    pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.41)
+    pkg_check_modules(WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.14)
     target_link_libraries(yauiclient PRIVATE PkgConfig::WAYLAND_CLIENT)
 
     # Locate wayland-scanner and the protocol XML directory. The scanner

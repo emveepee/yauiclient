@@ -16,13 +16,6 @@
 export DH_VERBOSE = 1
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# GLFW 3.4 prefix - tools/build-deb.sh builds GLFW 3.4 from source into here
-# before invoking dpkg-buildpackage, because Debian 12 (bookworm) only ships
-# GLFW 3.3.8 in main and bookworm-backports doesn't carry GLFW at all.
-# YAUI_GLFW_PREFIX is exported by build-deb.sh; if running dpkg-buildpackage
-# directly without the wrapper, default to the same path.
-GLFW_PREFIX = $(if $(YAUI_GLFW_PREFIX),$(YAUI_GLFW_PREFIX),$(CURDIR)/glfw-prefix)
-
 # Tell the linker where to find libmpv's siblings (FFmpeg 8, libplacebo 360,
 # libdav1d 6, etc.) when resolving libmpv.so's NEEDED entries at link time.
 # -Wl,-rpath-link adds the dir to the LINK-TIME resolution path WITHOUT
@@ -41,7 +34,7 @@ GLFW_PREFIX = $(if $(YAUI_GLFW_PREFIX),$(YAUI_GLFW_PREFIX),$(CURDIR)/glfw-prefix
 # have, leading to "cannot open shared object" errors at startup.
 # (yauiclient-wayland-system links against system libmpv2 which has the
 # system loader path, so this flag is harmless there.)
-export DEB_LDFLAGS_MAINT_APPEND = -L$(CURDIR)/sdk/lib -Wl,-rpath-link=$(CURDIR)/sdk/lib -L$(GLFW_PREFIX)/lib -Wl,-rpath-link=$(GLFW_PREFIX)/lib -Wl,--disable-new-dtags
+export DEB_LDFLAGS_MAINT_APPEND = -L$(CURDIR)/sdk/lib -Wl,-rpath-link=$(CURDIR)/sdk/lib -Wl,--disable-new-dtags
 
 include /usr/share/dpkg/architecture.mk
 include /usr/share/dpkg/buildflags.mk
@@ -70,7 +63,6 @@ BUNDLE_WL   = $(PKG_WL)/usr/lib/yauiclient/lib
 # Common CMake flags shared by all three flavours
 CMAKE_COMMON = -DCMAKE_BUILD_TYPE=Release \
                -DCMAKE_INSTALL_PREFIX=/usr \
-               -DCMAKE_PREFIX_PATH=$(GLFW_PREFIX) \
                -G Ninja
 
 # Bundled-flavour libraries to copy from sdk/lib/. Each pattern must match
@@ -152,57 +144,6 @@ override_dh_auto_install:
 	    fi; \
 	done
 
-	# Bundle the locally-built GLFW 3.4 into ALL three flavours. yauiclient
-	# is linked against this libglfw, not against the system libglfw3 (which
-	# on Debian 12 is only 3.3.8 anyway, missing the 3.4 features we need).
-	# The bundle into yauiclient-wayland-system is intentional - that flavour
-	# uses the system libmpv2 but still uses our locally-built GLFW.
-	mkdir -p $(PKG_WLSYS)/usr/lib/yauiclient/lib
-	set -e; \
-	for pat in libglfw.so libglfw.so.3 libglfw.so.3.*; do \
-	    found=0; \
-	    for f in $(GLFW_PREFIX)/lib/$$pat; do \
-	        if [ -e "$$f" ] || [ -L "$$f" ]; then \
-	            cp -P "$$f" $(BUNDLE_X11)/; \
-	            cp -P "$$f" $(BUNDLE_WL)/; \
-	            cp -P "$$f" $(PKG_WLSYS)/usr/lib/yauiclient/lib/; \
-	            found=1; \
-	        fi; \
-	    done; \
-	    if [ $$found -eq 0 ]; then \
-	        echo "ERROR: no files matched GLFW pattern '$$pat' in $(GLFW_PREFIX)/lib/"; \
-	        echo "       Did tools/build-deb.sh build GLFW 3.4 first?"; \
-	        exit 1; \
-	    fi; \
-	done
-
-	# Bundle libfmt.so.9 from the build host. yauiclient links libfmt
-	# directly (its SONAME 'libfmt.so.9' must be available on every target
-	# distro). libfmt is .9 on bookworm, .8 on jammy, .11 on questing/26.04,
-	# .7 on bullseye - bundling decouples the .deb from any specific
-	# distro's libfmt SONAME, just as we already do for libjpeg/libfmt in
-	# the legacy build.
-	#
-	# libjpeg.so.62 is already bundled via BUNDLE_PATTERNS (it's in the
-	# SDK runtime tarball) so we don't repeat it here.
-	set -e; \
-	for pat in libfmt.so.9 libfmt.so.9.*; do \
-	    found=0; \
-	    for f in /usr/lib/x86_64-linux-gnu/$$pat /usr/lib/$$pat; do \
-	        if [ -e "$$f" ] || [ -L "$$f" ]; then \
-	            cp -P "$$f" $(BUNDLE_X11)/; \
-	            cp -P "$$f" $(BUNDLE_WL)/; \
-	            cp -P "$$f" $(PKG_WLSYS)/usr/lib/yauiclient/lib/; \
-	            found=1; \
-	        fi; \
-	    done; \
-	    if [ $$found -eq 0 ]; then \
-	        echo "ERROR: no system file matched '$$pat' in /usr/lib/x86_64-linux-gnu/"; \
-	        echo "       libfmt-dev should be installed"; \
-	        exit 1; \
-	    fi; \
-	done
-
 	# Install desktop entries (per-flavour so the menu shows the right one)
 	install -D -m 0644 debian/yauiclient-x11.desktop \
 	  $(PKG_X11)/usr/share/applications/com.pinstripe.yauiclient.desktop
@@ -218,13 +159,12 @@ override_dh_auto_install:
 override_dh_shlibdeps:
 	dh_shlibdeps -pyauiclient-x11 \
 	  -l$(CURDIR)/$(BUNDLE_X11) \
-	  -- --ignore-missing-info -xlibglfw3 -xlibfmt9 -xlibjpeg62-turbo
+	  -- --ignore-missing-info
 	dh_shlibdeps -pyauiclient-wayland \
 	  -l$(CURDIR)/$(BUNDLE_WL) \
-	  -- --ignore-missing-info -xlibglfw3 -xlibfmt9 -xlibjpeg62-turbo
+	  -- --ignore-missing-info
 	dh_shlibdeps -pyauiclient-wayland-system \
-	  -l$(CURDIR)/$(PKG_WLSYS)/usr/lib/yauiclient/lib \
-	  -- --ignore-missing-info -xlibglfw3 -xlibfmt9 -xlibjpeg62-turbo
+	  -- --ignore-missing-info
 
 # ---------------------------------------------------------------------------
 # dwz: the bundled .so files come from external builds with DWARF already

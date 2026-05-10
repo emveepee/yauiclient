@@ -79,6 +79,7 @@ if [[ "$DOWNLOAD" -eq 1 ]]; then
     RUNTIME_TARBALL="libmpv-runtime-${LIBMPV_TAG}-linux-x86_64-debian12.tar.gz"
 
     log "Downloading libmpv SDK + runtime tarballs (${LIBMPV_TAG})"
+    rm -rf sdk
     mkdir -p sdk
     curl -fL --retry 3 -o "/tmp/${SDK_TARBALL}" "${BASE}/${SDK_TARBALL}"
     curl -fL --retry 3 -o "/tmp/${RUNTIME_TARBALL}" "${BASE}/${RUNTIME_TARBALL}"
@@ -108,10 +109,12 @@ ls sdk/lib/libdav1d.so.6* >/dev/null 2>&1 \
 log "Checking build dependencies"
 MISSING_PKGS=()
 for pkg in debhelper-compat cmake ninja-build pkg-config \
-           libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
+           libfmt-dev nlohmann-json3-dev zlib1g-dev \
            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
-           libxss-dev libxpresent-dev libwayland-dev libwayland-bin \
-           wayland-protocols libmpv-dev dpkg-dev fakeroot; do
+           libxss-dev libxpresent-dev \
+           libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev \
+           libwayland-dev libwayland-bin wayland-protocols \
+           libmpv-dev unzip dpkg-dev fakeroot; do
     if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
         MISSING_PKGS+=("$pkg")
     fi
@@ -119,9 +122,59 @@ done
 
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
     log "Installing missing build deps: ${MISSING_PKGS[*]}"
-    sudo apt-get update
-    sudo apt-get install -y --no-install-recommends "${MISSING_PKGS[@]}"
+    # When running as root (e.g. in a CI container or fresh debian:12
+    # image) sudo is neither available nor needed.
+    if [[ $EUID -eq 0 ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+    $SUDO apt-get update
+    $SUDO apt-get install -y --no-install-recommends "${MISSING_PKGS[@]}"
 fi
+
+# ---------------------------------------------------------------------------
+# Build GLFW 3.4 from source
+# ---------------------------------------------------------------------------
+# Debian 12 (bookworm) ships GLFW 3.3.8; yauiclient's Wayland flavour needs
+# 3.4 features (GLFW_PLATFORM, GLFW_WAYLAND_APP_ID). bookworm-backports
+# does not ship GLFW. So we build 3.4 from source into glfw-prefix/ here
+# and CMake picks it up via CMAKE_PREFIX_PATH (set in debian/rules).
+#
+# Skipped if glfw-prefix/lib/libglfw.so.3 already exists, so repeated runs
+# of this script don't waste time recompiling GLFW.
+GLFW_VERSION="3.4"
+GLFW_PREFIX="$REPO_ROOT/glfw-prefix"
+if [[ ! -e "$GLFW_PREFIX/lib/libglfw.so.3" ]]; then
+    log "Building GLFW $GLFW_VERSION from source into $GLFW_PREFIX"
+    rm -rf "$GLFW_PREFIX" /tmp/glfw-build
+    curl -fL --retry 3 -o /tmp/glfw.tar.gz \
+        "https://github.com/glfw/glfw/releases/download/${GLFW_VERSION}/glfw-${GLFW_VERSION}.zip" \
+      || curl -fL --retry 3 -o /tmp/glfw.tar.gz \
+        "https://github.com/glfw/glfw/archive/refs/tags/${GLFW_VERSION}.tar.gz"
+    mkdir -p /tmp/glfw-build
+    tar xzf /tmp/glfw.tar.gz -C /tmp/glfw-build --strip-components=1 2>/dev/null \
+      || (cd /tmp/glfw-build && unzip -q /tmp/glfw.tar.gz && mv glfw-*/* . && rmdir glfw-*)
+    cmake -S /tmp/glfw-build -B /tmp/glfw-build/build \
+        -DCMAKE_INSTALL_PREFIX="$GLFW_PREFIX" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=ON \
+        -DGLFW_BUILD_DOCS=OFF \
+        -DGLFW_BUILD_TESTS=OFF \
+        -DGLFW_BUILD_EXAMPLES=OFF \
+        -DGLFW_BUILD_X11=ON \
+        -DGLFW_BUILD_WAYLAND=ON \
+        -G Ninja
+    cmake --build /tmp/glfw-build/build --parallel "$(nproc)"
+    cmake --install /tmp/glfw-build/build
+    rm -rf /tmp/glfw-build /tmp/glfw.tar.gz
+    log "GLFW $GLFW_VERSION installed at $GLFW_PREFIX"
+else
+    log "GLFW already built at $GLFW_PREFIX (delete to force rebuild)"
+fi
+
+# Export the prefix so debian/rules can pick it up via CMAKE_PREFIX_PATH
+export YAUI_GLFW_PREFIX="$GLFW_PREFIX"
 
 # ---------------------------------------------------------------------------
 # Build all three .debs in one dpkg-buildpackage run

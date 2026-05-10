@@ -6,7 +6,6 @@ Build-Depends: debhelper-compat (= 13),
                cmake,
                ninja-build,
                pkg-config,
-               libglfw3-dev (>= 3.4),
                libfmt-dev,
                nlohmann-json3-dev,
                zlib1g-dev,
@@ -15,10 +14,19 @@ Build-Depends: debhelper-compat (= 13),
                libass-dev,
                libxss-dev,
                libxpresent-dev,
+               libxinerama-dev,
+               libxcursor-dev,
+               libxi-dev,
+               libxkbcommon-dev,
                libwayland-dev,
                libwayland-bin,
-               wayland-protocols (>= 1.41),
-               libmpv-dev
+               wayland-protocols,
+               libmpv-dev,
+               libva-dev,
+               libvdpau-dev,
+               liblcms2-dev,
+               libbluray-dev,
+               libjpeg62-turbo-dev | libjpeg-dev
 Standards-Version: 4.6.2
 Homepage: https://github.com/emveepee/yauiclient
 Vcs-Browser: https://github.com/emveepee/yauiclient
@@ -32,7 +40,6 @@ Conflicts: yauiclient-wayland, yauiclient-wayland-system
 Replaces: yauiclient-wayland, yauiclient-wayland-system
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libglfw3 (>= 3.4),
          libgl1,
          libva2,
          libva-drm2,
@@ -62,7 +69,6 @@ Conflicts: yauiclient-x11, yauiclient-wayland-system
 Replaces: yauiclient-x11, yauiclient-wayland-system
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libglfw3 (>= 3.4),
          libwayland-client0,
          libegl1,
          libgl1,
@@ -92,7 +98,6 @@ Replaces: yauiclient-x11, yauiclient-wayland
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          libmpv2,
-         libglfw3 (>= 3.4),
          libwayland-client0,
          libegl1,
          libgl1,

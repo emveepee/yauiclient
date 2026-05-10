@@ -28,13 +28,18 @@ jobs:
     steps:
       - name: Install base tooling
         # Debian 11's stock cmake is 3.18 but our CMakeLists requires 3.20.
-        # bullseye-backports has cmake 3.25 which is what we need. Set up
-        # the backports apt source first, then install cmake from it.
+        # bullseye-backports has cmake 3.25, but as of mid-2025 bullseye
+        # reached oldoldstable and bullseye-backports moved off the main
+        # mirror to archive.debian.org. archive.debian.org serves a frozen
+        # snapshot whose Release signatures are past their valid-until
+        # date, so we have to opt out of the validity check too.
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates
-          echo 'deb http://deb.debian.org/debian bullseye-backports main' \
+          echo 'deb http://archive.debian.org/debian bullseye-backports main' \
             > /etc/apt/sources.list.d/backports.list
+          echo 'Acquire::Check-Valid-Until "false";' \
+            > /etc/apt/apt.conf.d/99no-check-valid
           apt-get update
           apt-get install -y --no-install-recommends \
             -t bullseye-backports cmake
@@ -46,6 +51,8 @@ jobs:
             libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
             libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
             libxss-dev libxpresent-dev \
+            libva-dev libvdpau-dev liblcms2-dev libbluray-dev \
+            libjpeg62-turbo-dev \
             lintian
           cmake --version
 

@@ -33,16 +33,21 @@ jobs:
           # usable as a Build-Depends declaration). dpkg-dev pulls in
           # dpkg-buildpackage; devscripts adds dch and friends; fakeroot is
           # needed for non-root packaging. libmpv-dev is required for the
-          # yauiclient-wayland-system build.
+          # yauiclient-wayland-system build. libx{inerama,cursor,i,kbcommon}-dev
+          # are GLFW 3.4 build deps - we build GLFW from source because
+          # bookworm only ships 3.3.8.
           apt-get install -y --no-install-recommends \
-            git ca-certificates curl xz-utils build-essential \
+            git ca-certificates curl xz-utils unzip build-essential \
             debhelper dpkg-dev devscripts fakeroot \
             cmake ninja-build pkg-config \
-            libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
+            libfmt-dev nlohmann-json3-dev zlib1g-dev \
             libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
             libxss-dev libxpresent-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev \
             libwayland-dev libwayland-bin wayland-protocols \
             libmpv-dev \
+            libva-dev libvdpau-dev liblcms2-dev libbluray-dev \
+            libjpeg62-turbo-dev \
             lintian
 
       - name: Checkout yauiclient
@@ -77,6 +82,34 @@ jobs:
             ls sdk/lib/${so}* >/dev/null 2>&1 || { echo "Runtime missing ${so}"; exit 1; }
           done
           echo "SDK looks good."
+
+      - name: Build GLFW 3.4 from source
+        # Debian 12 (bookworm) ships GLFW 3.3.8; we need 3.4 features
+        # (GLFW_PLATFORM, GLFW_WAYLAND_APP_ID). bookworm-backports does
+        # not carry GLFW. Build from source into glfw-prefix/.
+        run: |
+          GLFW_VERSION="3.4"
+          GLFW_PREFIX="${GITHUB_WORKSPACE}/glfw-prefix"
+          curl -fL --retry 3 -o /tmp/glfw.zip \
+            "https://github.com/glfw/glfw/releases/download/${GLFW_VERSION}/glfw-${GLFW_VERSION}.zip"
+          mkdir -p /tmp/glfw-build
+          unzip -q /tmp/glfw.zip -d /tmp/glfw-extracted
+          mv /tmp/glfw-extracted/glfw-${GLFW_VERSION}/* /tmp/glfw-build/
+          cmake -S /tmp/glfw-build -B /tmp/glfw-build/build \
+            -DCMAKE_INSTALL_PREFIX="${GLFW_PREFIX}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGLFW_BUILD_DOCS=OFF \
+            -DGLFW_BUILD_TESTS=OFF \
+            -DGLFW_BUILD_EXAMPLES=OFF \
+            -DGLFW_BUILD_X11=ON \
+            -DGLFW_BUILD_WAYLAND=ON \
+            -G Ninja
+          cmake --build /tmp/glfw-build/build --parallel "$(nproc)"
+          cmake --install /tmp/glfw-build/build
+          rm -rf /tmp/glfw-build /tmp/glfw-extracted /tmp/glfw.zip
+          ls -la "${GLFW_PREFIX}/lib/"
+          echo "YAUI_GLFW_PREFIX=${GLFW_PREFIX}" >> "$GITHUB_ENV"
 
       - name: Build .debs (all three flavours)
         run: dpkg-buildpackage -b -uc -us -j"$(nproc)"

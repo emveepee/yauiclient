@@ -113,6 +113,8 @@ for pkg in debhelper-compat cmake ninja-build pkg-config \
            libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
            libxss-dev libxpresent-dev \
+           libva-dev libvdpau-dev liblcms2-dev libbluray-dev \
+           libjpeg62-turbo-dev \
            dpkg-dev fakeroot; do
     if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
         MISSING_PKGS+=("$pkg")
@@ -121,8 +123,15 @@ done
 
 if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
     log "Installing missing build deps: ${MISSING_PKGS[*]}"
-    sudo apt-get update
-    sudo apt-get install -y --no-install-recommends "${MISSING_PKGS[@]}"
+    # When running as root (e.g. in a CI container or fresh debian:11
+    # image) sudo is neither available nor needed.
+    if [[ $EUID -eq 0 ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+    $SUDO apt-get update
+    $SUDO apt-get install -y --no-install-recommends "${MISSING_PKGS[@]}"
 fi
 
 # ---------------------------------------------------------------------------

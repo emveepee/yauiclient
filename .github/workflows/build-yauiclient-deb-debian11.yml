@@ -1,168 +1,141 @@
-name: Build yauiclient .deb (Debian 11 legacy, X11 only)
+name: Build libmpv Linux (Debian 11)
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
-    inputs:
-      libmpv_version:
-        description: 'libmpv tarball version (legacy, no -debian12 suffix)'
-        default: 'v0.41.0'
-        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-deb-legacy:
-    name: Build amd64 .deb in debian:11
+  build:
     runs-on: ubuntu-latest
     container:
       image: debian:11
-
-    permissions:
-      contents: read
-
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      LIBMPV_VERSION: ${{ inputs.libmpv_version || 'v0.41.0' }}
+      options: --privileged
 
     steps:
-      - name: Install base tooling
-        # Debian 11's stock cmake is 3.18 but our CMakeLists requires 3.20.
-        # bullseye-backports has cmake 3.25, but as of mid-2025 bullseye
-        # reached oldoldstable and bullseye-backports moved off the main
-        # mirror to archive.debian.org. archive.debian.org serves a frozen
-        # snapshot whose Release signatures are past their valid-until
-        # date, so we have to opt out of the validity check too.
+      - name: Install base dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates
-          echo 'deb http://archive.debian.org/debian bullseye-backports main' \
-            > /etc/apt/sources.list.d/backports.list
-          echo 'Acquire::Check-Valid-Until "false";' \
-            > /etc/apt/apt.conf.d/99no-check-valid
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            -t bullseye-backports cmake
-          # Everything else from regular bullseye repos
-          apt-get install -y --no-install-recommends \
-            git curl xz-utils build-essential \
-            debhelper dpkg-dev devscripts fakeroot \
-            ninja-build pkg-config \
-            libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
-            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
-            libxss-dev libxpresent-dev \
-            libva-dev libvdpau-dev liblcms2-dev libbluray-dev \
-            libjpeg62-turbo-dev \
-            lintian
-          cmake --version
+          apt-get install -y \
+            build-essential nasm yasm pkg-config \
+            git curl wget ca-certificates \
+            python3 python3-pip \
+            autoconf automake libtool gettext \
+            cmake \
+            libass-dev libfreetype6-dev libfribidi-dev libharfbuzz-dev \
+            libbluray-dev liblcms2-dev libluajit-5.1-dev \
+            libfontconfig-dev libjpeg-dev zlib1g-dev libpng-dev \
+            libva-dev libvdpau-dev \
+            libgl1-mesa-dev \
+            libpipewire-0.3-dev libpulse-dev libasound2-dev \
+            patchelf
 
-      - name: Checkout yauiclient
-        uses: actions/checkout@v4
-
-      - name: Trust the workspace for git
-        run: git config --global --add safe.directory '*'
-
-      - name: Download legacy libmpv SDK + runtime
-        # The 'legacy' tarballs are the no-suffix ones (built on Debian 11
-        # for glibc 2.31 compatibility), distinct from the -debian12 ones.
+      - name: Remove conflicting dev packages
         run: |
-          mkdir -p sdk
-          BASE="https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder"
-          SDK="libmpv-sdk-${LIBMPV_VERSION}-linux-x86_64.tar.gz"
-          RUNTIME="libmpv-runtime-${LIBMPV_VERSION}-linux-x86_64.tar.gz"
+          apt-get remove -y libavdevice-dev libcdio-dev libcdio-paranoia-dev 2>/dev/null || true
 
-          echo "Fetching ${SDK}"
-          curl -fL --retry 3 -o "/tmp/${SDK}" "${BASE}/${SDK}"
-          echo "Fetching ${RUNTIME}"
-          curl -fL --retry 3 -o "/tmp/${RUNTIME}" "${BASE}/${RUNTIME}"
-
-          tar xzf "/tmp/${SDK}" -C sdk/
-          tar xzf "/tmp/${RUNTIME}" -C sdk/lib/
-
-          echo "SDK contents:"
-          ls -la sdk/lib/
-
-      - name: Verify SDK is complete
+      - name: Install newer meson and ninja via pip
         run: |
-          test -f sdk/include/mpv/client.h || { echo "SDK missing headers"; exit 1; }
-          test -f sdk/lib/libmpv.so || { echo "Runtime missing libmpv.so"; exit 1; }
-          # FFmpeg 7.1.1 SONAMEs (avcodec.61, avformat.61, etc.) are loose-
-          # globbed in debian-legacy/rules; we just confirm at least one
-          # libavcodec.so.* is present here.
-          ls sdk/lib/libavcodec.so.* >/dev/null 2>&1 || { echo "Runtime missing libavcodec"; exit 1; }
-          echo "SDK looks good."
+          pip3 install meson ninja
+          echo "/root/.local/bin" >> $GITHUB_PATH
 
-      - name: Swap debian-legacy/ into debian/
-        # dpkg-buildpackage hardcodes 'debian/' so we move the legacy tree
-        # into place. The original debian/ (modern) is set aside for the
-        # duration of the build.
+      - name: Download build script from wiki
         run: |
-          if [ -d debian ]; then
-            mv debian debian.modern.saved
-          fi
-          if [ ! -d debian-legacy ]; then
-            echo "ERROR: debian-legacy/ not found"; exit 1
-          fi
-          cp -a debian-legacy debian
+          curl -fsSL \
+            "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/build-libmpv-linux.sh" \
+            -o build-libmpv-linux.sh
+          chmod +x build-libmpv-linux.sh
 
-      - name: Build .deb
-        run: dpkg-buildpackage -b -uc -us -j"$(nproc)"
+      - name: Cache build sources
+        uses: actions/cache@v4.2.3
+        with:
+          path: |
+            work/src
+            work/deps-zvbi
+            work/deps-placebo
+            work/deps-ffmpeg6
+            work/deps-ffmpeg7
+            work/deps-placebo
+          key: libmpv-debian11-audio-${{ hashFiles('build-libmpv-linux.sh') }}
+          restore-keys: |
+            libmpv-debian11-audio-
+            libmpv-debian11-audio
+            libmpv-debian11-all-rpath-
+            libmpv-debian11-all-rpath
+            libmpv-debian11-rpath-
+            libmpv-debian11-rpath
 
-      - name: Restore debian/ swap (cleanup)
-        # Always run, even on prior step failure, so artefacts collection
-        # below sees the right tree state.
+      - name: Build libmpv v0.37.0 through v0.41.0
+        run: |
+          export PATH="/root/.local/bin:$PATH"
+          export JOBS=$(nproc)
+          export INSTALL_PREFIX="$HOME/.local"
+          ./build-libmpv-linux.sh v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0
+        env:
+          FFMPEG6_VERSION: "6.1.1"
+          FFMPEG7_VERSION: "7.1.1"
+          ZVBI_VERSION: "0.2.44"
+          LIBPLACEBO_VERSION: "7.351.0"
+
+      - name: Show dependency list
         if: always()
         run: |
-          rm -rf debian
-          if [ -d debian.modern.saved ]; then
-            mv debian.modern.saved debian
-          fi
-
-      - name: Collect artefacts
-        run: |
-          mkdir -p out
-          mv ../yauiclient-x11-legacy_*.deb out/
-          mv ../yauiclient_*.changes out/ 2>/dev/null || true
-          mv ../yauiclient_*.buildinfo out/ 2>/dev/null || true
-          ls -la out/
-
-      - name: Run lintian (informational)
-        run: |
-          for f in out/*.deb; do
-            echo "::group::lintian $f"
-            lintian --no-tag-display-limit "$f" || true
-            echo "::endgroup::"
+          for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
+            so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
+            if [[ -n "$so" ]]; then
+              echo "==> libmpv $tag dependencies:"
+              ldd "$so" || true
+            fi
           done
 
-      - name: Summarise build
+      - name: Verify audio output drivers are linked
+        if: always()
         run: |
-          {
-            echo "## yauiclient-x11-legacy .deb build summary"
-            echo ""
-            echo "**Build base:** Debian 11 (glibc 2.31)"
-            echo "**libmpv version:** \`${LIBMPV_VERSION}\` (legacy, FFmpeg 7.1.1)"
-            echo "**Compatible with:** Debian 11+, Ubuntu 20.04+, Mint 20+"
-            echo ""
-            echo "### Artefacts"
-            echo ""
-            echo '```'
-            ls -la out/
-            echo '```'
-            echo ""
-            for f in out/*.deb; do
-              echo "### $(basename "$f")"
-              echo ""
-              echo '```'
-              dpkg-deb -I "$f" | head -25
-              echo '```'
-              echo ""
-            done
-          } >> "$GITHUB_STEP_SUMMARY"
+          fail=0
+          for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
+            so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
+            if [[ -n "$so" ]]; then
+              echo "==> checking $tag for audio backends"
+              missing=""
+              for lib in libpipewire libpulse libasound; do
+                ldd "$so" | grep -q "$lib" || missing="$missing $lib"
+              done
+              if [[ -n "$missing" ]]; then
+                echo "ERROR: $tag is missing:$missing"
+                fail=1
+              else
+                echo "OK: $tag has pipewire, pulse, and alsa linked"
+              fi
+            fi
+          done
+          if [[ "$fail" == "1" ]]; then
+            echo "One or more libmpv builds are missing audio output drivers."
+            echo "Check that libpipewire-0.3-dev, libpulse-dev, and libasound2-dev"
+            echo "were installed before the configure step ran."
+            exit 1
+          fi
 
-      - name: Upload .deb artefact
-        uses: actions/upload-artifact@v4
+      - name: Upload SDK artifacts
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
         with:
-          name: yauiclient-x11-legacy-deb-${{ env.LIBMPV_VERSION }}
-          path: out/*
-          retention-days: 30
-          if-no-files-found: error
+          name: libmpv-sdk-debian11-x86_64
+          path: out/libmpv-sdk-*-linux-x86_64.tar.gz
+          if-no-files-found: warn
+
+      - name: Upload Runtime artifacts
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: libmpv-runtime-debian11-x86_64
+          path: out/libmpv-runtime-*-linux-x86_64.tar.gz
+          if-no-files-found: warn
+
+      - name: Upload SHA256s
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: libmpv-sha256-debian11-x86_64
+          path: out/*.sha256
+          if-no-files-found: warn

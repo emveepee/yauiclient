@@ -47,6 +47,14 @@ jobs:
             -o build-libmpv-linux.sh
           chmod +x build-libmpv-linux.sh
 
+      # NOTE: cache key includes a manual version tag (pixelsmash-v1) in addition
+      # to the script hash. restore-keys matches by PREFIX, so even when the
+      # script changes, an old cache can still be restored and FFmpeg's
+      # .ffmpeg-built-* stamp will cause the build to skip recompiling.
+      # Bump the version tag (e.g. pixelsmash-v2) any time you need to force
+      # a full rebuild regardless of whether the script itself changed -
+      # for example after a CVE fix landed in FFmpeg upstream with no local
+      # script change, or to invalidate a known-bad cache.
       - name: Cache build sources
         uses: actions/cache@v4.2.3
         with:
@@ -56,17 +64,13 @@ jobs:
             work/deps-placebo
             work/deps-ffmpeg6
             work/deps-ffmpeg7
-            work/deps-placebo
-          key: libmpv-debian11-audio-${{ hashFiles('build-libmpv-linux.sh') }}
-          restore-keys: |
-            libmpv-debian11-audio-
-            libmpv-debian11-audio
-            libmpv-debian11-all-rpath-
-            libmpv-debian11-all-rpath
-            libmpv-debian11-rpath-
-            libmpv-debian11-rpath
+          key: libmpv-debian11-pixelsmash-v1-${{ hashFiles('build-libmpv-linux.sh') }}
+          # No restore-keys: a partial/prefix match would silently restore
+          # the old (vulnerable) FFmpeg build via the .ffmpeg-built-* stamp.
+          # Always start clean when forcing a security-relevant rebuild.
 
       - name: Build libmpv v0.37.0 through v0.41.0
+        shell: bash
         run: |
           export PATH="/root/.local/bin:$PATH"
           export JOBS=$(nproc)
@@ -78,8 +82,32 @@ jobs:
           ZVBI_VERSION: "0.2.44"
           LIBPLACEBO_VERSION: "7.351.0"
 
+      - name: Verify magicyuv decoder is disabled (PixelSmash CVE mitigation)
+        if: always()
+        shell: bash
+        run: |
+          fail=0
+          for ver in 6 7; do
+            for f in work/deps-ffmpeg${ver}/lib/libavcodec.so.*; do
+              [[ -f "$f" && ! -L "$f" ]] || continue
+              if nm -D "$f" 2>/dev/null | grep -qi "magicyuv_decode"; then
+                echo "ERROR: $f still contains magicyuv decoder symbols"
+                fail=1
+              else
+                echo "OK: $f - magicyuv decoder not present"
+              fi
+            done
+          done
+          if [[ "$fail" == "1" ]]; then
+            echo "magicyuv decoder found in build - PixelSmash CVE mitigation failed"
+            echo "Check that --disable-decoder=magicyuv is in the FFmpeg configure flags"
+            echo "and that the cache was actually invalidated for this run."
+            exit 1
+          fi
+
       - name: Show dependency list
         if: always()
+        shell: bash
         run: |
           for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
             so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
@@ -91,6 +119,7 @@ jobs:
 
       - name: Verify audio output drivers are linked
         if: always()
+        shell: bash
         run: |
           fail=0
           for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
@@ -111,8 +140,6 @@ jobs:
           done
           if [[ "$fail" == "1" ]]; then
             echo "One or more libmpv builds are missing audio output drivers."
-            echo "Check that libpipewire-0.3-dev, libpulse-dev, and libasound2-dev"
-            echo "were installed before the configure step ran."
             exit 1
           fi
 

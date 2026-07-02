@@ -1,0 +1,181 @@
+name: Build libmpv SDK (Debian 12, x86_64)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mpv_version:
+        description: 'mpv tag to build'
+        default: 'v0.41.0'
+        type: string
+      ffmpeg_version:
+        description: 'FFmpeg version'
+        default: '8.1'
+        type: string
+      libplacebo_version:
+        description: 'libplacebo version'
+        default: '7.360.1'
+        type: string
+
+jobs:
+  build-libmpv:
+    name: Build libmpv ${{ inputs.mpv_version }} SDK
+    runs-on: ubuntu-latest
+    container:
+      image: debian:12
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      FFMPEG8_VERSION: ${{ inputs.ffmpeg_version }}
+      LIBPLACEBO_VERSION: ${{ inputs.libplacebo_version }}
+      # Point ccache at a stable path so the cache action can save/restore it
+      CCACHE_DIR: /tmp/ccache
+      CCACHE_MAXSIZE: 5G
+      CCACHE_COMPRESS: 'true'
+      # Meson caches downloaded subproject tarballs here by default
+      MESON_PACKAGE_CACHE_DIR: /tmp/meson-packagecache
+
+    steps:
+      - name: Install base tooling and libmpv build deps
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git curl xz-utils \
+            build-essential nasm yasm pkg-config meson ninja-build cmake \
+            autoconf automake libtool gettext autopoint \
+            libass-dev libfreetype6-dev libfribidi-dev libharfbuzz-dev \
+            liblcms2-dev libluajit-5.1-dev \
+            libfontconfig-dev libjpeg-dev zlib1g-dev libpng-dev \
+            libdav1d-dev \
+            libva-dev libvdpau-dev libegl1-mesa-dev libgl1-mesa-dev \
+            libgbm-dev libdrm-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev \
+            libx11-dev libxext-dev libxrandr-dev libxpresent-dev libxss-dev \
+            libpipewire-0.3-dev libpulse-dev libasound2-dev \
+            hwdata patchelf python3-pip ccache
+
+      - name: Checkout yauiclient (for this workflow file)
+        uses: actions/checkout@v4
+        with:
+          path: yauiclient
+
+      - name: Checkout libmpv-mingw64-builder
+        uses: actions/checkout@v4
+        with:
+          repository: emveepee/libmpv-mingw64-builder
+          path: libmpv-mingw64-builder
+
+      - name: Trust the workspace for git
+        # post-CVE-2022-24765 fix - workspace UID differs from build steps'
+        run: git config --global --add safe.directory '*'
+
+      # ------------------------------------------------------------------
+      # Caching: three cache layers
+      #  1. ccache - covers every C/C++ compile in FFmpeg, libplacebo, mpv,
+      #     and their subprojects. Biggest wall-time saving. Keyed on the
+      #     versions of the things being compiled so any bump invalidates.
+      #  2. Meson subproject downloads - libplacebo/libdav1d/libdisplay-info
+      #     source tarballs. Small (few MB) but avoids network roundtrips.
+      #  3. FFmpeg source tarball - fetched from git, ~50MB, saves the
+      #     git clone time on repeat runs.
+      # ------------------------------------------------------------------
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ccache
+          key: ccache-libmpv-debian12-${{ inputs.mpv_version }}-ffmpeg${{ inputs.ffmpeg_version }}-libplacebo${{ inputs.libplacebo_version }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-libmpv-debian12-${{ inputs.mpv_version }}-ffmpeg${{ inputs.ffmpeg_version }}-libplacebo${{ inputs.libplacebo_version }}-
+            ccache-libmpv-debian12-${{ inputs.mpv_version }}-ffmpeg${{ inputs.ffmpeg_version }}-
+            ccache-libmpv-debian12-${{ inputs.mpv_version }}-
+            ccache-libmpv-debian12-
+
+      - name: Restore meson subproject cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/meson-packagecache
+          key: meson-libmpv-debian12-libplacebo${{ inputs.libplacebo_version }}-${{ github.run_id }}
+          restore-keys: |
+            meson-libmpv-debian12-libplacebo${{ inputs.libplacebo_version }}-
+            meson-libmpv-debian12-
+
+      - name: Restore FFmpeg source cache
+        uses: actions/cache@v4
+        with:
+          path: libmpv-mingw64-builder/deps-ffmpeg-src
+          key: ffmpeg-src-${{ inputs.ffmpeg_version }}
+
+      - name: Configure ccache
+        # ccache wraps the compilers via /usr/lib/ccache/gcc etc. Put that
+        # dir first on PATH so gcc/g++ resolve through ccache. Verify it's
+        # actually the ccache wrappers we're picking up.
+        run: |
+          mkdir -p /tmp/ccache /tmp/meson-packagecache
+          ccache --set-config=cache_dir=/tmp/ccache
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+          ccache -z  # zero stats before build
+          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
+          which gcc
+          which g++
+          ccache --version
+
+      - name: Show environment summary
+        run: |
+          echo "mpv version:        $MPV_VERSION"
+          echo "FFmpeg version:     $FFMPEG8_VERSION"
+          echo "libplacebo version: $LIBPLACEBO_VERSION"
+          echo "cache size limit:   $CCACHE_MAXSIZE"
+          ccache -s
+        env:
+          MPV_VERSION: ${{ inputs.mpv_version }}
+
+      - name: Build libmpv SDK
+        working-directory: libmpv-mingw64-builder
+        run: |
+          chmod +x build-libmpv-linux-next.sh
+          # PATH already has /usr/lib/ccache prepended above so the compilers
+          # inside the script's meson/cmake invocations transparently use ccache.
+          ./build-libmpv-linux-next.sh ${{ inputs.mpv_version }}
+
+      - name: ccache statistics after build
+        run: ccache -s
+
+      - name: Verify SDK tarballs
+        working-directory: libmpv-mingw64-builder
+        run: |
+          ls -la libmpv-sdk-*.tar.gz libmpv-runtime-*.tar.gz
+          for tb in libmpv-sdk-*.tar.gz libmpv-runtime-*.tar.gz; do
+            echo "::group::$tb"
+            tar tzf "$tb" | head -20
+            echo "..."
+            tar tzf "$tb" | wc -l
+            echo " entries total"
+            echo "::endgroup::"
+          done
+
+      - name: Summarise build
+        run: |
+          {
+            echo "## libmpv SDK build summary"
+            echo ""
+            echo "**mpv tag:** \`${{ inputs.mpv_version }}\`"
+            echo "**FFmpeg version:** \`${{ inputs.ffmpeg_version }}\`"
+            echo "**libplacebo version:** \`${{ inputs.libplacebo_version }}\`"
+            echo "**Build base:** Debian 12 (glibc 2.36)"
+            echo ""
+            echo "### Tarballs"
+            echo ""
+            echo '```'
+            ls -la libmpv-mingw64-builder/libmpv-*.tar.gz
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SDK tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-sdk-${{ inputs.mpv_version }}-debian12
+          path: |
+            libmpv-mingw64-builder/libmpv-sdk-*.tar.gz
+            libmpv-mingw64-builder/libmpv-runtime-*.tar.gz
+          retention-days: 90
+          if-no-files-found: error

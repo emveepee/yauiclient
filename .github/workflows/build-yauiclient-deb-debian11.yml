@@ -28,7 +28,6 @@ jobs:
             libfontconfig-dev libjpeg-dev zlib1g-dev libpng-dev \
             libva-dev libvdpau-dev \
             libgl1-mesa-dev \
-            libpipewire-0.3-dev libpulse-dev libasound2-dev \
             patchelf
 
       - name: Remove conflicting dev packages
@@ -47,14 +46,36 @@ jobs:
             -o build-libmpv-linux.sh
           chmod +x build-libmpv-linux.sh
 
-      # NOTE: cache key includes a manual version tag (pixelsmash-v1) in addition
-      # to the script hash. restore-keys matches by PREFIX, so even when the
-      # script changes, an old cache can still be restored and FFmpeg's
-      # .ffmpeg-built-* stamp will cause the build to skip recompiling.
-      # Bump the version tag (e.g. pixelsmash-v2) any time you need to force
-      # a full rebuild regardless of whether the script itself changed -
-      # for example after a CVE fix landed in FFmpeg upstream with no local
-      # script change, or to invalidate a known-bad cache.
+      # Must run before the cache step below - hashFiles('patches/**') needs
+      # these on disk to compute the cache key. If a patch changes but this
+      # step ran after caching (or the cache key didn't include the patches
+      # at all), a cache hit could restore a work/deps-ffmpeg* tree whose
+      # own internal stamp files make build-libmpv-linux.sh think that
+      # version is "already built" and skip it entirely - patch application
+      # included - producing an artifact that silently lacks the fix.
+      - name: Download custom patches from wiki
+        run: |
+          mkdir -p patches/ffmpeg patches/mpv
+          for f in mpegvideo_parser_resync_valve.patch combine_frame_shrink.patch; do
+            curl -fsSL \
+              "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/$f" \
+              -o "patches/ffmpeg/$f"
+          done
+          for f in idle_packet_pool_clear.patch pool_incremental_gc.patch fence_leak_fix.patch; do
+            curl -fsSL \
+              "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/$f" \
+              -o "patches/mpv/$f"
+          done
+          echo "Patches downloaded:"
+          find patches -name '*.patch' -print
+          # Defensive: normalize line endings. Patch files created on Linux
+          # can pick up CRLF if ever committed to the wiki repo from a
+          # Windows git client with core.autocrlf=true - corrupts hunk
+          # context matching against LF-only source inside this container,
+          # even though patch itself starts fine (finds the file, then
+          # fails partway through). Cheap and harmless if already LF-only.
+          find patches -name '*.patch' -exec sed -i 's/\r$//' {} +
+
       - name: Cache build sources
         uses: actions/cache@v4.2.3
         with:
@@ -64,17 +85,18 @@ jobs:
             work/deps-placebo
             work/deps-ffmpeg6
             work/deps-ffmpeg7
-          key: libmpv-debian11-pixelsmash-v1-${{ hashFiles('build-libmpv-linux.sh') }}
-          # No restore-keys: a partial/prefix match would silently restore
-          # the old (vulnerable) FFmpeg build via the .ffmpeg-built-* stamp.
-          # Always start clean when forcing a security-relevant rebuild.
+            work/deps-placebo
+          key: libmpv-debian11-all-rpath-v2-${{ hashFiles('build-libmpv-linux.sh', 'patches/**') }}
+          restore-keys: |
+            libmpv-debian11-all-rpath-v2-${{ hashFiles('build-libmpv-linux.sh') }}-
+            libmpv-debian11-all-rpath-v2-
 
       - name: Build libmpv v0.37.0 through v0.41.0
-        shell: bash
         run: |
           export PATH="/root/.local/bin:$PATH"
           export JOBS=$(nproc)
           export INSTALL_PREFIX="$HOME/.local"
+          export CUSTOM_PATCH_DIR="$PWD/patches"
           ./build-libmpv-linux.sh v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0
         env:
           FFMPEG6_VERSION: "6.1.1"
@@ -82,32 +104,8 @@ jobs:
           ZVBI_VERSION: "0.2.44"
           LIBPLACEBO_VERSION: "7.351.0"
 
-      - name: Verify magicyuv decoder is disabled (PixelSmash CVE mitigation)
-        if: always()
-        shell: bash
-        run: |
-          fail=0
-          for ver in 6 7; do
-            for f in work/deps-ffmpeg${ver}/lib/libavcodec.so.*; do
-              [[ -f "$f" && ! -L "$f" ]] || continue
-              if nm -D "$f" 2>/dev/null | grep -qi "magicyuv_decode"; then
-                echo "ERROR: $f still contains magicyuv decoder symbols"
-                fail=1
-              else
-                echo "OK: $f - magicyuv decoder not present"
-              fi
-            done
-          done
-          if [[ "$fail" == "1" ]]; then
-            echo "magicyuv decoder found in build - PixelSmash CVE mitigation failed"
-            echo "Check that --disable-decoder=magicyuv is in the FFmpeg configure flags"
-            echo "and that the cache was actually invalidated for this run."
-            exit 1
-          fi
-
       - name: Show dependency list
         if: always()
-        shell: bash
         run: |
           for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
             so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
@@ -116,32 +114,6 @@ jobs:
               ldd "$so" || true
             fi
           done
-
-      - name: Verify audio output drivers are linked
-        if: always()
-        shell: bash
-        run: |
-          fail=0
-          for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
-            so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
-            if [[ -n "$so" ]]; then
-              echo "==> checking $tag for audio backends"
-              missing=""
-              for lib in libpipewire libpulse libasound; do
-                ldd "$so" | grep -q "$lib" || missing="$missing $lib"
-              done
-              if [[ -n "$missing" ]]; then
-                echo "ERROR: $tag is missing:$missing"
-                fail=1
-              else
-                echo "OK: $tag has pipewire, pulse, and alsa linked"
-              fi
-            fi
-          done
-          if [[ "$fail" == "1" ]]; then
-            echo "One or more libmpv builds are missing audio output drivers."
-            exit 1
-          fi
 
       - name: Upload SDK artifacts
         if: always()

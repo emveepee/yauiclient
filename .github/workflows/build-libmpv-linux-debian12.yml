@@ -1,181 +1,176 @@
-name: Build libmpv SDK (Debian 12, x86_64)
+name: Build libmpv Linux (Debian 12)
 
 on:
   workflow_dispatch:
     inputs:
-      mpv_version:
-        description: 'mpv tag to build'
+      mpv_tags:
+        description: 'mpv tags to build (space-separated, default: v0.41.0)'
+        required: false
         default: 'v0.41.0'
-        type: string
-      ffmpeg_version:
-        description: 'FFmpeg version'
+      ffmpeg8_version:
+        description: 'FFmpeg 8.x version'
+        required: false
         default: '8.1'
-        type: string
-      libplacebo_version:
-        description: 'libplacebo version'
-        default: '7.360.1'
-        type: string
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-libmpv:
-    name: Build libmpv ${{ inputs.mpv_version }} SDK
+  build:
     runs-on: ubuntu-latest
     container:
       image: debian:12
-
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      FFMPEG8_VERSION: ${{ inputs.ffmpeg_version }}
-      LIBPLACEBO_VERSION: ${{ inputs.libplacebo_version }}
-      # Point ccache at a stable path so the cache action can save/restore it
-      CCACHE_DIR: /tmp/ccache
-      CCACHE_MAXSIZE: 5G
-      CCACHE_COMPRESS: 'true'
-      # Meson caches downloaded subproject tarballs here by default
-      MESON_PACKAGE_CACHE_DIR: /tmp/meson-packagecache
+      options: --privileged
 
     steps:
-      - name: Install base tooling and libmpv build deps
+      - name: Install base dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends \
-            ca-certificates git curl xz-utils \
-            build-essential nasm yasm pkg-config meson ninja-build cmake \
+          apt-get install -y \
+            build-essential nasm yasm pkg-config \
+            git curl wget ca-certificates \
+            python3 python3-pip \
             autoconf automake libtool gettext autopoint \
+            cmake \
             libass-dev libfreetype6-dev libfribidi-dev libharfbuzz-dev \
             liblcms2-dev libluajit-5.1-dev \
             libfontconfig-dev libjpeg-dev zlib1g-dev libpng-dev \
             libdav1d-dev \
-            libva-dev libvdpau-dev libegl1-mesa-dev libgl1-mesa-dev \
-            libgbm-dev libdrm-dev \
+            libva-dev libvdpau-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libgbm-dev libdrm-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
             libx11-dev libxext-dev libxrandr-dev libxpresent-dev libxss-dev \
             libpipewire-0.3-dev libpulse-dev libasound2-dev \
-            hwdata patchelf python3-pip ccache
+            hwdata patchelf
 
-      - name: Checkout yauiclient (for this workflow file)
-        uses: actions/checkout@v4
-        with:
-          path: yauiclient
-
-      - name: Checkout libmpv-mingw64-builder
-        uses: actions/checkout@v4
-        with:
-          repository: emveepee/libmpv-mingw64-builder
-          path: libmpv-mingw64-builder
-
-      - name: Trust the workspace for git
-        # post-CVE-2022-24765 fix - workspace UID differs from build steps'
-        run: git config --global --add safe.directory '*'
-
-      # ------------------------------------------------------------------
-      # Caching: three cache layers
-      #  1. ccache - covers every C/C++ compile in FFmpeg, libplacebo, mpv,
-      #     and their subprojects. Biggest wall-time saving. Keyed on the
-      #     versions of the things being compiled so any bump invalidates.
-      #  2. Meson subproject downloads - libplacebo/libdav1d/libdisplay-info
-      #     source tarballs. Small (few MB) but avoids network roundtrips.
-      #  3. FFmpeg source tarball - fetched from git, ~50MB, saves the
-      #     git clone time on repeat runs.
-      # ------------------------------------------------------------------
-      - name: Restore ccache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/ccache
-          key: ccache-libmpv-debian12-${{ inputs.mpv_version }}-ffmpeg${{ inputs.ffmpeg_version }}-libplacebo${{ inputs.libplacebo_version }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-libmpv-debian12-${{ inputs.mpv_version }}-ffmpeg${{ inputs.ffmpeg_version }}-libplacebo${{ inputs.libplacebo_version }}-
-            ccache-libmpv-debian12-${{ inputs.mpv_version }}-ffmpeg${{ inputs.ffmpeg_version }}-
-            ccache-libmpv-debian12-${{ inputs.mpv_version }}-
-            ccache-libmpv-debian12-
-
-      - name: Restore meson subproject cache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/meson-packagecache
-          key: meson-libmpv-debian12-libplacebo${{ inputs.libplacebo_version }}-${{ github.run_id }}
-          restore-keys: |
-            meson-libmpv-debian12-libplacebo${{ inputs.libplacebo_version }}-
-            meson-libmpv-debian12-
-
-      - name: Restore FFmpeg source cache
-        uses: actions/cache@v4
-        with:
-          path: libmpv-mingw64-builder/deps-ffmpeg-src
-          key: ffmpeg-src-${{ inputs.ffmpeg_version }}
-
-      - name: Configure ccache
-        # ccache wraps the compilers via /usr/lib/ccache/gcc etc. Put that
-        # dir first on PATH so gcc/g++ resolve through ccache. Verify it's
-        # actually the ccache wrappers we're picking up.
+      - name: Remove conflicting dev packages
         run: |
-          mkdir -p /tmp/ccache /tmp/meson-packagecache
-          ccache --set-config=cache_dir=/tmp/ccache
-          ccache --set-config=max_size=5G
-          ccache --set-config=compression=true
-          ccache -z  # zero stats before build
-          echo "/usr/lib/ccache" >> "$GITHUB_PATH"
-          which gcc
-          which g++
-          ccache --version
+          apt-get remove -y libavdevice-dev libcdio-dev libcdio-paranoia-dev 2>/dev/null || true
 
-      - name: Show environment summary
+      - name: Install newer meson and ninja via pip
         run: |
-          echo "mpv version:        $MPV_VERSION"
-          echo "FFmpeg version:     $FFMPEG8_VERSION"
-          echo "libplacebo version: $LIBPLACEBO_VERSION"
-          echo "cache size limit:   $CCACHE_MAXSIZE"
-          ccache -s
-        env:
-          MPV_VERSION: ${{ inputs.mpv_version }}
+          pip3 install --break-system-packages meson ninja
+          echo "/root/.local/bin" >> $GITHUB_PATH
 
-      - name: Build libmpv SDK
-        working-directory: libmpv-mingw64-builder
+      - name: Download build script from wiki
         run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/build-libmpv-linux-next.sh" \
+            -o build-libmpv-linux-next.sh
           chmod +x build-libmpv-linux-next.sh
-          # PATH already has /usr/lib/ccache prepended above so the compilers
-          # inside the script's meson/cmake invocations transparently use ccache.
-          ./build-libmpv-linux-next.sh ${{ inputs.mpv_version }}
 
-      - name: ccache statistics after build
-        run: ccache -s
-
-      - name: Verify SDK tarballs
-        working-directory: libmpv-mingw64-builder
+      # Must run before the cache step below - hashFiles('patches/**') needs
+      # these on disk to compute the cache key. See the equivalent comment
+      # in build-libmpv-debian11.yml for why ordering matters here.
+      #
+      # FFmpeg patches are intentionally NOT downloaded for this workflow -
+      # mpegvideo_parser_resync_valve.patch and combine_frame_shrink.patch
+      # were written and verified against FFmpeg 7.1.1's source structure;
+      # this workflow builds FFmpeg 8.x, and whether those patches still
+      # apply cleanly there hasn't been checked yet. Only the mpv/ patches
+      # are pulled in - they're gated on the mpv tag (min-version 0.40.0),
+      # not the FFmpeg version, so they're unaffected by that open question.
+      - name: Download custom patches from wiki (mpv only - see note above)
         run: |
-          ls -la libmpv-sdk-*.tar.gz libmpv-runtime-*.tar.gz
-          for tb in libmpv-sdk-*.tar.gz libmpv-runtime-*.tar.gz; do
-            echo "::group::$tb"
-            tar tzf "$tb" | head -20
-            echo "..."
-            tar tzf "$tb" | wc -l
-            echo " entries total"
-            echo "::endgroup::"
+          mkdir -p patches/mpv
+          for f in idle_packet_pool_clear.patch pool_incremental_gc.patch fence_leak_fix.patch; do
+            curl -fsSL \
+              "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/$f" \
+              -o "patches/mpv/$f"
+          done
+          echo "Patches downloaded:"
+          find patches -name '*.patch' -print
+          # Defensive: normalize line endings. Patch files created on Linux
+          # can pick up CRLF if ever committed to the wiki repo from a
+          # Windows git client with core.autocrlf=true - corrupts hunk
+          # context matching against LF-only source inside this container,
+          # even though patch itself starts fine (finds the file, then
+          # fails partway through). Cheap and harmless if already LF-only.
+          find patches -name '*.patch' -exec sed -i 's/\r$//' {} +
+
+      - name: Cache build sources
+        uses: actions/cache@v4.2.3
+        with:
+          path: |
+            work/src
+            work/deps-zvbi
+            work/deps-placebo
+            work/deps-displayinfo
+            work/deps-wayland-protocols
+            work/deps-ffmpeg8
+          key: libmpv-debian12-${{ inputs.mpv_tags }}-${{ inputs.ffmpeg8_version }}-dav1d-rpath2-v2-${{ hashFiles('build-libmpv-linux-next.sh', 'patches/**') }}
+          restore-keys: |
+            libmpv-debian12-${{ inputs.mpv_tags }}-${{ inputs.ffmpeg8_version }}-dav1d-rpath2-v2-${{ hashFiles('build-libmpv-linux-next.sh') }}-
+            libmpv-debian12-${{ inputs.mpv_tags }}-${{ inputs.ffmpeg8_version }}-dav1d-rpath2-v2-
+            libmpv-debian12-${{ inputs.mpv_tags }}-dav1d-rpath2-v2-
+            libmpv-debian12-dav1d-rpath2-v2-
+
+      - name: Build libmpv
+        run: |
+          export PATH="/root/.local/bin:$PATH"
+          export JOBS=$(nproc)
+          export INSTALL_PREFIX="$HOME/.local"
+          export CUSTOM_PATCH_DIR="$PWD/patches"
+          ./build-libmpv-linux-next.sh ${{ inputs.mpv_tags }}
+        env:
+          FFMPEG8_VERSION: ${{ inputs.ffmpeg8_version }}
+          ZVBI_VERSION: "0.2.44"
+          LIBPLACEBO_VERSION: "7.351.0"
+
+      - name: Show patch rejects on failure
+        if: failure()
+        run: |
+          echo "mpv tag(s) requested: ${{ inputs.mpv_tags }}"
+          echo "--- patch file line-ending check ---"
+          for f in patches/mpv/*.patch; do
+            echo "=== $f ==="
+            file "$f"
+          done
+          echo "--- .rej files (exact rejected hunks) ---"
+          find work/src -name "*.rej" -print -exec cat {} \; 2>/dev/null || echo "No .rej files found"
+          echo "--- actual current state of the target file, for comparison ---"
+          find work/src/mpv -name "context.c" -path "*opengl*" -exec sed -n '225,245p' {} \; 2>/dev/null || echo "context.c not found"
+
+      - name: Verify X11 + Wayland linkage
+        if: always()
+        run: |
+          for so in $(find work/build -name "libmpv.so.*" 2>/dev/null); do
+            echo "==> $so"
+            ldd "$so" | grep -E "libX11|libwayland|libEGL|libGL\.so|libdrm|libva" || true
+            echo ""
           done
 
-      - name: Summarise build
+      - name: Show dependency list
+        if: always()
         run: |
-          {
-            echo "## libmpv SDK build summary"
-            echo ""
-            echo "**mpv tag:** \`${{ inputs.mpv_version }}\`"
-            echo "**FFmpeg version:** \`${{ inputs.ffmpeg_version }}\`"
-            echo "**libplacebo version:** \`${{ inputs.libplacebo_version }}\`"
-            echo "**Build base:** Debian 12 (glibc 2.36)"
-            echo ""
-            echo "### Tarballs"
-            echo ""
-            echo '```'
-            ls -la libmpv-mingw64-builder/libmpv-*.tar.gz
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          for tag in ${{ inputs.mpv_tags }}; do
+            so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
+            if [[ -n "$so" ]]; then
+              echo "==> libmpv $tag dependencies:"
+              ldd "$so" || true
+            fi
+          done
 
-      - name: Upload SDK tarballs
-        uses: actions/upload-artifact@v4
+      - name: Upload SDK artifacts
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
         with:
-          name: libmpv-sdk-${{ inputs.mpv_version }}-debian12
-          path: |
-            libmpv-mingw64-builder/libmpv-sdk-*.tar.gz
-            libmpv-mingw64-builder/libmpv-runtime-*.tar.gz
-          retention-days: 90
-          if-no-files-found: error
+          name: libmpv-sdk-debian12-x86_64
+          path: out/libmpv-sdk-*-linux-x86_64-debian12.tar.gz
+          if-no-files-found: warn
+
+      - name: Upload Runtime artifacts
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: libmpv-runtime-debian12-x86_64
+          path: out/libmpv-runtime-*-linux-x86_64-debian12.tar.gz
+          if-no-files-found: warn
+
+      - name: Upload SHA256s
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: libmpv-sha256-debian12-x86_64
+          path: out/*-debian12.sha256
+          if-no-files-found: warn

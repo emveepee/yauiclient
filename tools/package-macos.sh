@@ -10,7 +10,7 @@
 #
 # Output:
 #   dist/yauiclient.app          - app bundle
-#   dist/yauiclient-macos.tar.gz - distributable archive
+#   dist/yauiclient-macos-x64.tar.gz - distributable archive
 
 set -euo pipefail
 
@@ -36,7 +36,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 BINARY="$BUILD_DIR/yauiclient"
 [[ -f "$BINARY" ]] || die "Binary not found at $BUILD_DIR/yauiclient
 Build first:
-  cmake -B build/macos-${BUILD_TYPE} -S . -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DLIBMPV_SDK_DIR=\$PWD/sdk
+  cmake -B build/macos-${BUILD_TYPE} -S . -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DYAUICLIENT_USE_SYSTEM_MPV=ON
   cmake --build build/macos-${BUILD_TYPE} --parallel \$(sysctl -n hw.logicalcpu)"
 
 command -v dylibbundler &>/dev/null || die "dylibbundler not found — install it:
@@ -54,8 +54,6 @@ if ! ls "$BUILD_DIR"/libmpv*.dylib &>/dev/null; then
     read -r -p "Continue anyway? [y/N] " response
     [[ "$response" =~ ^[Yy]$ ]] || die "Aborted."
 fi
-command -v dylibbundler &>/dev/null || die "dylibbundler not found — install it:
-  brew install dylibbundler"
 
 # ---------------------------------------------------------------------------
 # Clean and create bundle structure

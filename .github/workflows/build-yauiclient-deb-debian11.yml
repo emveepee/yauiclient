@@ -1,140 +1,104 @@
-name: Build libmpv Linux (Debian 11)
+name: Build yauiclient .deb (Debian 11, x11-legacy)
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      libmpv_version:
+        description: 'libmpv tarball version (must match a legacy, non -debian12 release on the wiki)'
+        default: 'v0.41.0'
+        type: string
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build:
+  build-deb:
+    name: Build yauiclient-x11-legacy amd64 .deb in debian:11
     runs-on: ubuntu-latest
     container:
       image: debian:11
-      options: --privileged
+
+    permissions:
+      contents: read
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LIBMPV_VERSION: ${{ inputs.libmpv_version || 'v0.41.0' }}
 
     steps:
-      - name: Install base dependencies
+      - name: Install base tooling
         run: |
           apt-get update
-          apt-get install -y \
-            build-essential nasm yasm pkg-config \
-            git curl wget ca-certificates \
+          apt-get install -y --no-install-recommends \
+            git ca-certificates curl xz-utils build-essential \
+            debhelper dpkg-dev devscripts fakeroot \
+            ninja-build pkg-config \
             python3 python3-pip \
-            autoconf automake libtool gettext \
-            cmake \
-            libass-dev libfreetype6-dev libfribidi-dev libharfbuzz-dev \
-            libbluray-dev liblcms2-dev libluajit-5.1-dev \
-            libfontconfig-dev libjpeg-dev zlib1g-dev libpng-dev \
-            libva-dev libvdpau-dev \
-            libgl1-mesa-dev \
-            patchelf
+            lintian
 
-      - name: Remove conflicting dev packages
+      - name: Install CMake 3.20+ via pip
+        # CMakeLists.txt requires CMake 3.20; Debian 11 ships 3.18. Kept on
+        # 3.x to match the CMake 3.25 that the Debian 12 build uses.
+        # pip installs into /usr/local/bin, which comes before /usr/bin on
+        # PATH, so dh_auto_configure picks it up over the apt cmake that
+        # tools/build-deb-legacy.sh installs as a build dependency.
         run: |
-          apt-get remove -y libavdevice-dev libcdio-dev libcdio-paranoia-dev 2>/dev/null || true
+          pip3 install --no-cache-dir 'cmake>=3.20,<4'
+          cmake --version
 
-      - name: Install newer meson and ninja via pip
+      - name: Checkout yauiclient
+        uses: actions/checkout@v4
+
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory '*'
+
+      - name: Build .deb (x11-legacy)
+        # build-deb-legacy.sh downloads the legacy libmpv SDK + runtime into
+        # sdk/, installs any missing Debian 11 build deps, swaps
+        # debian-legacy/ into place for dpkg-buildpackage, and collects the
+        # results in bin/.
         run: |
-          pip3 install meson ninja
-          echo "/root/.local/bin" >> $GITHUB_PATH
+          chmod +x tools/build-deb-legacy.sh
+          ./tools/build-deb-legacy.sh --download "${LIBMPV_VERSION}"
 
-      - name: Download build script from wiki
+      - name: Collect artefacts
         run: |
-          curl -fsSL \
-            "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/build-libmpv-linux.sh" \
-            -o build-libmpv-linux.sh
-          chmod +x build-libmpv-linux.sh
+          mkdir -p out
+          mv bin/yauiclient-x11-legacy_*.deb out/
+          mv bin/yauiclient_*.changes out/ 2>/dev/null || true
+          mv bin/yauiclient_*.buildinfo out/ 2>/dev/null || true
+          ls -la out/
 
-      # Must run before the cache step below - hashFiles('patches/**') needs
-      # these on disk to compute the cache key. If a patch changes but this
-      # step ran after caching (or the cache key didn't include the patches
-      # at all), a cache hit could restore a work/deps-ffmpeg* tree whose
-      # own internal stamp files make build-libmpv-linux.sh think that
-      # version is "already built" and skip it entirely - patch application
-      # included - producing an artifact that silently lacks the fix.
-      - name: Download custom patches from wiki
+      - name: Summarise build
         run: |
-          mkdir -p patches/ffmpeg patches/mpv
-          for f in mpegvideo_parser_resync_valve.patch combine_frame_shrink.patch; do
-            curl -fsSL \
-              "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/$f" \
-              -o "patches/ffmpeg/$f"
-          done
-          for f in idle_packet_pool_clear.patch pool_incremental_gc.patch fence_leak_fix.patch; do
-            curl -fsSL \
-              "https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/$f" \
-              -o "patches/mpv/$f"
-          done
-          echo "Patches downloaded:"
-          find patches -name '*.patch' -print
-          # Defensive: normalize line endings. Patch files created on Linux
-          # can pick up CRLF if ever committed to the wiki repo from a
-          # Windows git client with core.autocrlf=true - corrupts hunk
-          # context matching against LF-only source inside this container,
-          # even though patch itself starts fine (finds the file, then
-          # fails partway through). Cheap and harmless if already LF-only.
-          find patches -name '*.patch' -exec sed -i 's/\r$//' {} +
+          {
+            echo "## yauiclient .deb build summary (Debian 11)"
+            echo ""
+            echo "**libmpv version (bundled):** \`${LIBMPV_VERSION}\`"
+            echo ""
+            echo "### Artefacts"
+            echo ""
+            echo '```'
+            ls -la out/
+            echo '```'
+            echo ""
+            for f in out/*.deb; do
+              echo "### $(basename "$f")"
+              echo ""
+              echo '```'
+              dpkg-deb -I "$f" | head -25
+              echo '```'
+              echo ""
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Cache build sources
-        uses: actions/cache@v4.2.3
+      - name: Upload .deb artefacts
+        uses: actions/upload-artifact@v4
         with:
-          path: |
-            work/src
-            work/deps-zvbi
-            work/deps-placebo
-            work/deps-ffmpeg6
-            work/deps-ffmpeg7
-            work/deps-placebo
-          key: libmpv-debian11-all-rpath-v2-${{ hashFiles('build-libmpv-linux.sh', 'patches/**') }}
-          restore-keys: |
-            libmpv-debian11-all-rpath-v2-${{ hashFiles('build-libmpv-linux.sh') }}-
-            libmpv-debian11-all-rpath-v2-
-
-      - name: Build libmpv v0.37.0 through v0.41.0
-        run: |
-          export PATH="/root/.local/bin:$PATH"
-          export JOBS=$(nproc)
-          export INSTALL_PREFIX="$HOME/.local"
-          export CUSTOM_PATCH_DIR="$PWD/patches"
-          ./build-libmpv-linux.sh v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0
-        env:
-          FFMPEG6_VERSION: "6.1.1"
-          FFMPEG7_VERSION: "7.1.1"
-          ZVBI_VERSION: "0.2.44"
-          LIBPLACEBO_VERSION: "7.351.0"
-
-      - name: Show dependency list
-        if: always()
-        run: |
-          for tag in v0.41.0 v0.40.0 v0.39.0 v0.38.0 v0.37.0; do
-            so=$(find work/build/mpv-$tag -name "libmpv.so*" 2>/dev/null | head -1)
-            if [[ -n "$so" ]]; then
-              echo "==> libmpv $tag dependencies:"
-              ldd "$so" || true
-            fi
-          done
-
-      - name: Upload SDK artifacts
-        if: always()
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: libmpv-sdk-debian11-x86_64
-          path: out/libmpv-sdk-*-linux-x86_64.tar.gz
-          if-no-files-found: warn
-
-      - name: Upload Runtime artifacts
-        if: always()
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: libmpv-runtime-debian11-x86_64
-          path: out/libmpv-runtime-*-linux-x86_64.tar.gz
-          if-no-files-found: warn
-
-      - name: Upload SHA256s
-        if: always()
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: libmpv-sha256-debian11-x86_64
-          path: out/*.sha256
-          if-no-files-found: warn
+          name: yauiclient-deb-legacy-${{ env.LIBMPV_VERSION }}
+          path: out/*
+          retention-days: 30
+          if-no-files-found: error

@@ -93,12 +93,11 @@ echo [1/3] Installing vcpkg dependencies for x64-windows...
 echo       (this may take a while on first run)
 echo.
 
-%VCPKG% install ^
+"%VCPKG%" install ^
     cpr:x64-windows ^
     curl:x64-windows ^
     glew:x64-windows ^
     glfw3:x64-windows ^
-    nlohmann-json:x64-windows ^
     fmt:x64-windows ^
     zlib:x64-windows
 
@@ -107,7 +106,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-%VCPKG% integrate install
+"%VCPKG%" integrate install
 if errorlevel 1 (
     echo WARNING: vcpkg integrate install failed - continuing anyway.
 )
@@ -144,28 +143,36 @@ echo [3/3] Copying vcpkg runtime DLLs...
 set VCPKG_BIN=%VCPKG_ROOT%\installed\x64-windows\bin
 set VCPKG_DBG=%VCPKG_ROOT%\installed\x64-windows\debug\bin
 
+:: Release DLLs go only to bin\Release and debug DLLs only to bin\Debug.
+:: Several debug DLLs keep the release name (cpr.dll, glfw3.dll), so a
+:: release copy in bin\Debug would shadow the debug one.
+:: Prefixes match both names: libcurl -> libcurl.dll / libcurl-d.dll,
+:: fmt -> fmt.dll / fmtd.dll, glew32 -> glew32.dll / glew32d.dll,
+:: zlib -> zlib1.dll / zlibd1.dll.
 if exist "%VCPKG_BIN%" (
-    for %%p in (cpr libcurl glew32 glfw3 fmt zlib1) do (
+    for %%p in (cpr libcurl glew32 glfw3 fmt zlib) do (
         for %%f in ("%VCPKG_BIN%\%%p*.dll") do (
             if exist "%%f" (
                 copy /Y "%%f" "%REPO_ROOT%\bin\Release\" >nul
-                copy /Y "%%f" "%REPO_ROOT%\bin\Debug\"   >nul
-                echo   + %%~nxf
-            )
-        )
-    )
-    if exist "%VCPKG_DBG%" (
-        for %%p in (cprd libcurl-d glew32d fmtd zlibd) do (
-            for %%f in ("%VCPKG_DBG%\%%p*.dll") do (
-                if exist "%%f" (
-                    copy /Y "%%f" "%REPO_ROOT%\bin\Debug\" >nul
-                    echo   + %%~nxf  [debug]
-                )
+                echo   + %%~nxf  [release]
             )
         )
     )
 ) else (
     echo WARNING: vcpkg bin not found at %VCPKG_BIN%
+)
+
+if exist "%VCPKG_DBG%" (
+    for %%p in (cpr libcurl glew32 glfw3 fmt zlib) do (
+        for %%f in ("%VCPKG_DBG%\%%p*.dll") do (
+            if exist "%%f" (
+                copy /Y "%%f" "%REPO_ROOT%\bin\Debug\" >nul
+                echo   + %%~nxf  [debug]
+            )
+        )
+    )
+) else (
+    echo WARNING: vcpkg debug bin not found at %VCPKG_DBG%
 )
 
 :: ---------------------------------------------------------------------------
@@ -181,8 +188,8 @@ echo  bin\Debug\            - all runtime DLLs
 echo  bin\Release\          - all runtime DLLs
 echo.
 echo  To build:
-echo    cmake -B build\windows ^
-echo      -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake ^
+echo    cmake -B build\windows ^^
+echo      -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake ^^
 echo      -DLIBMPV_SDK_DIR=%REPO_ROOT%\sdk
 echo    cmake --build build\windows --config Release
 echo ============================================================

@@ -30,7 +30,7 @@ MINGW_BIN="$MINGW_PREFIX/bin"
 
 log()  { printf "\n==> %s\n" "$*"; }
 warn() { printf "WARNING: %s\n" "$*"; }
-die()  { echo "ERROR: $*" >&2; exit 1; }
+die()  { printf "ERROR: %b\n" "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Sanity checks
@@ -73,7 +73,6 @@ PACKAGES=(
     mingw-w64-x86_64-curl
     mingw-w64-x86_64-glew
     mingw-w64-x86_64-glfw
-    mingw-w64-x86_64-nlohmann-json
     mingw-w64-x86_64-fmt
     mingw-w64-x86_64-zlib
 )

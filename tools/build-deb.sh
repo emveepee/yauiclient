@@ -108,8 +108,8 @@ ls sdk/lib/libdav1d.so.6* >/dev/null 2>&1 \
 # ---------------------------------------------------------------------------
 log "Checking build dependencies"
 MISSING_PKGS=()
-for pkg in debhelper-compat cmake ninja-build pkg-config \
-           libfmt-dev nlohmann-json3-dev zlib1g-dev \
+for pkg in debhelper cmake ninja-build pkg-config \
+           libfmt-dev zlib1g-dev \
            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
            libxss-dev libxpresent-dev \
            libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev \
@@ -134,18 +134,22 @@ if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build GLFW 3.4 from source
+# Build GLFW from source
 # ---------------------------------------------------------------------------
 # Debian 12 (bookworm) ships GLFW 3.3.8; yauiclient's Wayland flavour needs
 # 3.4 features (GLFW_PLATFORM, GLFW_WAYLAND_APP_ID). bookworm-backports
-# does not ship GLFW. So we build 3.4 from source into glfw-prefix/ here
+# does not ship GLFW. So we build GLFW from source into glfw-prefix/ here
 # and CMake picks it up via CMAKE_PREFIX_PATH (set in debian/rules).
+# Keep GLFW_VERSION in step with the Debian 12 workflow.
 #
-# Skipped if glfw-prefix/lib/libglfw.so.3 already exists, so repeated runs
-# of this script don't waste time recompiling GLFW.
-GLFW_VERSION="3.4"
+# Skipped if glfw-prefix/ already holds this GLFW_VERSION (recorded in
+# glfw-prefix/.glfw-version), so repeated runs don't recompile GLFW but a
+# version bump does.
+GLFW_VERSION="3.5.1"
 GLFW_PREFIX="$REPO_ROOT/glfw-prefix"
-if [[ ! -e "$GLFW_PREFIX/lib/libglfw.so.3" ]]; then
+GLFW_STAMP="$GLFW_PREFIX/.glfw-version"
+if [[ ! -e "$GLFW_PREFIX/lib/libglfw.so.3" ]] \
+   || [[ "$(cat "$GLFW_STAMP" 2>/dev/null)" != "$GLFW_VERSION" ]]; then
     log "Building GLFW $GLFW_VERSION from source into $GLFW_PREFIX"
     rm -rf "$GLFW_PREFIX" /tmp/glfw-build
     curl -fL --retry 3 -o /tmp/glfw.tar.gz \
@@ -168,9 +172,10 @@ if [[ ! -e "$GLFW_PREFIX/lib/libglfw.so.3" ]]; then
     cmake --build /tmp/glfw-build/build --parallel "$(nproc)"
     cmake --install /tmp/glfw-build/build
     rm -rf /tmp/glfw-build /tmp/glfw.tar.gz
+    echo "$GLFW_VERSION" > "$GLFW_STAMP"
     log "GLFW $GLFW_VERSION installed at $GLFW_PREFIX"
 else
-    log "GLFW already built at $GLFW_PREFIX (delete to force rebuild)"
+    log "GLFW $GLFW_VERSION already built at $GLFW_PREFIX (delete to force rebuild)"
 fi
 
 # Export the prefix so debian/rules can pick it up via CMAKE_PREFIX_PATH

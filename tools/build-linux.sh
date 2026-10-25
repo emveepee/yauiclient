@@ -8,8 +8,8 @@
 # Prerequisites - Ubuntu/Debian:
 #   sudo apt install -y \
 #     build-essential cmake ninja-build pkg-config git curl \
-#     libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
-#     libcurl4-dev libluajit-5.1-dev libass-dev \
+#     libglfw3-dev libfmt-dev zlib1g-dev \
+#     libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
 #     libxss-dev libxpresent-dev
 #   # Add for --wayland builds:
 #   sudo apt install -y libwayland-dev wayland-protocols
@@ -17,7 +17,7 @@
 # Prerequisites - Arch:
 #   sudo pacman -S --needed \
 #     base-devel cmake ninja pkgconf git curl \
-#     glfw fmt nlohmann-json zlib curl \
+#     glfw fmt zlib curl \
 #     luajit libass libjpeg-turbo \
 #     libxss libxpresent
 #   # Add for --wayland builds:
@@ -29,10 +29,10 @@
 # SDK setup (required before building):
 #   Download the SDK and runtime tarballs from:
 #     https://github.com/emveepee/libmpv-mingw64-builder/wiki/Building-on-Linux
-#   Extract both to sdk/ in the repo root:
-#     mkdir -p sdk
+#   The SDK goes in sdk/, the runtime (a flat set of .so files) in sdk/lib/:
+#     mkdir -p sdk/lib
 #     tar xzf libmpv-sdk-vX.X.X-linux-x86_64-debian12.tar.gz -C sdk/
-#     tar xzf libmpv-runtime-vX.X.X-linux-x86_64-debian12.tar.gz -C sdk/
+#     tar xzf libmpv-runtime-vX.X.X-linux-x86_64-debian12.tar.gz -C sdk/lib/
 #
 # Usage:
 #   ./tools/build-linux.sh                       # X11, Release (default)
@@ -119,10 +119,10 @@ if [[ "$USE_SYSTEM_MPV" == "1" ]]; then
 else
   [[ -f "$SDK_DIR/include/mpv/client.h" ]] || die \
 "libmpv SDK not found at $SDK_DIR
-Download the SDK tarball from the wiki and extract it to sdk/ in the repo root:
-  mkdir -p sdk
+Download the SDK and runtime tarballs from the wiki and extract them:
+  mkdir -p sdk/lib
   tar xzf libmpv-sdk-vX.X.X-linux-${ARCH}-debian12.tar.gz -C sdk/
-  tar xzf libmpv-runtime-vX.X.X-linux-${ARCH}-debian12.tar.gz -C sdk/
+  tar xzf libmpv-runtime-vX.X.X-linux-${ARCH}-debian12.tar.gz -C sdk/lib/
 See https://github.com/emveepee/libmpv-mingw64-builder/wiki/Building-on-Linux"
   MPV_FLAGS="-DLIBMPV_SDK_DIR=$SDK_DIR"
   log "Using SDK libmpv: $SDK_DIR"
@@ -169,10 +169,15 @@ if [[ "$USE_SYSTEM_MPV" != "1" ]]; then
     find "$SDK_DIR/lib" -name "${lib}*.so*" -exec cp -Pf {} "$OUT_DIR/" \; 2>/dev/null || true
   done
 
+  if ! ls "$OUT_DIR"/libavcodec.so* &>/dev/null; then
+    log "WARNING: FFmpeg runtime libs not found in $SDK_DIR/lib - yauiclient will fail to start"
+    log "  The runtime tarball must be extracted to sdk/lib/, not sdk/"
+  fi
+
   if ! ls "$OUT_DIR"/libmpv.so* &>/dev/null; then
     log "WARNING: libmpv.so not found in $OUT_DIR - yauiclient will fail to start"
-    log "  Extract the runtime tarball to sdk/:"
-    log "  tar xzf libmpv-runtime-vX.X.X-linux-${ARCH}-debian12.tar.gz -C sdk/"
+    log "  Extract the runtime tarball to sdk/lib/:"
+    log "  tar xzf libmpv-runtime-vX.X.X-linux-${ARCH}-debian12.tar.gz -C sdk/lib/"
   fi
 fi
 

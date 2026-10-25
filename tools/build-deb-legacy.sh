@@ -109,8 +109,8 @@ fi
 # ---------------------------------------------------------------------------
 log "Checking build dependencies"
 MISSING_PKGS=()
-for pkg in debhelper-compat cmake ninja-build pkg-config \
-           libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
+for pkg in debhelper cmake ninja-build pkg-config \
+           libglfw3-dev libfmt-dev zlib1g-dev \
            libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
            libxss-dev libxpresent-dev \
            libva-dev libvdpau-dev liblcms2-dev libbluray-dev \

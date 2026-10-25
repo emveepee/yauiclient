@@ -16,7 +16,7 @@
 export DH_VERBOSE = 1
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# GLFW 3.4 prefix - tools/build-deb.sh builds GLFW 3.4 from source into here
+# GLFW prefix - tools/build-deb.sh builds GLFW (3.4+) from source into here
 # before invoking dpkg-buildpackage, because Debian 12 (bookworm) only ships
 # GLFW 3.3.8 in main and bookworm-backports doesn't carry GLFW at all.
 # YAUI_GLFW_PREFIX is exported by build-deb.sh; if running dpkg-buildpackage
@@ -152,7 +152,7 @@ override_dh_auto_install:
 	    fi; \
 	done
 
-	# Bundle the locally-built GLFW 3.4 into ALL three flavours. yauiclient
+	# Bundle the locally-built GLFW into ALL three flavours. yauiclient
 	# is linked against this libglfw, not against the system libglfw3 (which
 	# on Debian 12 is only 3.3.8 anyway, missing the 3.4 features we need).
 	# The bundle into yauiclient-wayland-system is intentional - that flavour
@@ -171,7 +171,7 @@ override_dh_auto_install:
 	    done; \
 	    if [ $$found -eq 0 ]; then \
 	        echo "ERROR: no files matched GLFW pattern '$$pat' in $(GLFW_PREFIX)/lib/"; \
-	        echo "       Did tools/build-deb.sh build GLFW 3.4 first?"; \
+	        echo "       Did tools/build-deb.sh build GLFW first?"; \
 	        exit 1; \
 	    fi; \
 	done

@@ -7,6 +7,32 @@ bin/
 # libmpv SDK - populated manually before building
 sdk/
 
+# GLFW built from source by tools/build-deb.sh
+glfw-prefix/
+
+# CI artefact staging (workflows)
+out/
+
+# Visual Studio solution output under src/
+obj/
+
+# Local vcpkg snapshots for reverting library updates
+vcpkg-snapshots/
+
+# dpkg-buildpackage / debhelper by-products
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.substvars
+debian/*.debhelper.log
+debian/yauiclient-*/
+debian-legacy/.debhelper/
+debian-legacy/debhelper-build-stamp
+debian-legacy/files
+debian-legacy/*.substvars
+debian-legacy/*.debhelper.log
+debian-legacy/yauiclient-*/
+
 # CMake
 CMakeCache.txt
 CMakeFiles/

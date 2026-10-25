@@ -9,8 +9,8 @@ and how updates are handled. The README's dependency table gives the short form.
 |---|---|---|---|
 | libmpv | 0.41.0 | libmpv SDK (`src/deps/` for the Visual Studio solution, `sdk/` for CMake) | LGPL-2.1+ / GPL, depending on build configuration |
 | mpv client headers | 0.41.0 | `src/deps/include/mpv` | ISC |
-| FFmpeg | 7.1.1 | Bundled in the libmpv SDK runtime | LGPL / GPL, depending on build configuration |
-| libplacebo | — | Bundled in the libmpv SDK runtime | LGPL-2.1+ |
+| FFmpeg | Set by the libmpv build | Bundled in the libmpv SDK runtime; the libmpv builder picks the FFmpeg version each mpv tag needs | LGPL / GPL, depending on build configuration |
+| libplacebo | Set by the libmpv build | Bundled in the libmpv SDK runtime | LGPL-2.1+ |
 | cpr | 1.14.2 | vcpkg (Visual Studio solution); FetchContent `GIT_TAG 1.14.2` (CMake) | MIT |
 | libcurl | 8.18.0 | vcpkg | curl licence (MIT-style) |
 | fmt | 12.1.0 | vcpkg | MIT |

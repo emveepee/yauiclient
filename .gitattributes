@@ -1,0 +1,31 @@
+* text=auto
+
+# Source: LF everywhere
+*.c        text eol=lf
+*.cpp      text eol=lf
+*.h        text eol=lf
+*.hpp      text eol=lf
+CMakeLists.txt text eol=lf
+*.cmake    text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+
+# Scripts and Debian packaging run on Linux: LF even on a Windows checkout
+*.sh                text eol=lf
+debian/**           text eol=lf
+debian-legacy/**    text eol=lf
+debian-rules        text eol=lf
+debian-legacy-rules text eol=lf
+
+# Visual Studio and Windows scripts: CRLF
+*.sln              text eol=crlf
+*.vcxproj          text eol=crlf
+*.vcxproj.filters  text eol=crlf
+*.bat              text eol=crlf
+*.ps1              text eol=crlf
+
+# Binaries
+*.lib binary
+*.dll binary
+*.png binary
+*.zip binary

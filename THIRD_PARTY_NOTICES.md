@@ -8,11 +8,11 @@ licence text or notice in each component's files is the authoritative version.
 
 | Component | Location | Author | Licence |
 |---|---|---|---|
-| nlohmann/json | `third_party/nlohmann/` | Niels Lohmann | MIT, see `third_party/nlohmann/LICENSE.MIT` |
-| Hedley (used by nlohmann/json) | `third_party/nlohmann/thirdparty/hedley/` | Evan Nemerson | CC0 1.0 |
-| fpng | `fpng.cpp`, `fpng.h` | Rich Geldreich | Public domain (Unlicense), see file header |
-| stb_image | `stb_image.h` | Sean Barrett | Public domain or MIT, at your choice, see end of file |
-| mpv client API headers | `deps/include/mpv/` | The mpv developers | ISC, see file headers |
+| nlohmann/json | `src/third_party/nlohmann/` | Niels Lohmann | MIT, see `src/third_party/nlohmann/LICENSE.MIT` |
+| Hedley (used by nlohmann/json) | `src/third_party/nlohmann/thirdparty/hedley/` | Evan Nemerson | CC0 1.0 |
+| fpng | `src/third_party/fpng/` | Rich Geldreich | Public domain (Unlicense), see file header |
+| stb_image | `src/third_party/stb/stb_image.h` | Sean Barrett | Public domain or MIT, at your choice, see end of file |
+| mpv client API headers | `src/deps/include/mpv/` | The mpv developers | ISC, see file headers |
 
 ## Used at build or run time, not included in this repository
 

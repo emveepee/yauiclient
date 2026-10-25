@@ -122,7 +122,7 @@ Output: `dist/yauiclient.app` and `dist/yauiclient-macos-x64.tar.gz`
 sudo apt install -y \
   build-essential cmake ninja-build pkg-config git curl \
   libglfw3-dev libfmt-dev zlib1g-dev \
-  libcurl4-dev libluajit-5.1-dev libass-dev libbluray-dev \
+  libcurl4-openssl-dev libluajit-5.1-dev libass-dev libbluray-dev \
   libjpeg62-turbo
 ```
 
@@ -149,9 +149,10 @@ curl -L -o /tmp/libmpv-sdk-v0.41.0-linux-x86_64.tar.gz \
 curl -L -o /tmp/libmpv-runtime-v0.41.0-linux-x86_64.tar.gz \
   https://raw.githubusercontent.com/wiki/emveepee/libmpv-mingw64-builder/libmpv-runtime-v0.41.0-linux-x86_64.tar.gz
 
-# Extract to sdk/
+# Extract: the SDK into sdk/, the runtime (flat .so files) into sdk/lib/
+mkdir -p sdk/lib
 tar xzf /tmp/libmpv-sdk-v0.41.0-linux-x86_64.tar.gz -C sdk/
-tar xzf /tmp/libmpv-runtime-v0.41.0-linux-x86_64.tar.gz -C sdk/
+tar xzf /tmp/libmpv-runtime-v0.41.0-linux-x86_64.tar.gz -C sdk/lib/
 
 # Build
 chmod +x tools/build-linux.sh

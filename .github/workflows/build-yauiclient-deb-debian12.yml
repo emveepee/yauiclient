@@ -34,13 +34,13 @@ jobs:
           # dpkg-buildpackage; devscripts adds dch and friends; fakeroot is
           # needed for non-root packaging. libmpv-dev is required for the
           # yauiclient-wayland-system build. libx{inerama,cursor,i,kbcommon}-dev
-          # are GLFW 3.4 build deps - we build GLFW from source because
+          # are GLFW build deps - we build GLFW from source because
           # bookworm only ships 3.3.8.
           apt-get install -y --no-install-recommends \
             git ca-certificates curl xz-utils unzip build-essential \
             debhelper dpkg-dev devscripts fakeroot \
             cmake ninja-build pkg-config \
-            libfmt-dev nlohmann-json3-dev zlib1g-dev \
+            libfmt-dev zlib1g-dev \
             libcurl4-openssl-dev libluajit-5.1-dev libass-dev \
             libxss-dev libxpresent-dev \
             libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev \
@@ -83,12 +83,12 @@ jobs:
           done
           echo "SDK looks good."
 
-      - name: Build GLFW 3.4 from source
-        # Debian 12 (bookworm) ships GLFW 3.3.8; we need 3.4 features
+      - name: Build GLFW 3.5.1 from source
+        # Debian 12 (bookworm) ships GLFW 3.3.8; we need 3.4+ features
         # (GLFW_PLATFORM, GLFW_WAYLAND_APP_ID). bookworm-backports does
         # not carry GLFW. Build from source into glfw-prefix/.
         run: |
-          GLFW_VERSION="3.4"
+          GLFW_VERSION="3.5.1"
           GLFW_PREFIX="${GITHUB_WORKSPACE}/glfw-prefix"
           curl -fL --retry 3 -o /tmp/glfw.zip \
             "https://github.com/glfw/glfw/releases/download/${GLFW_VERSION}/glfw-${GLFW_VERSION}.zip"

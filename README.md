@@ -40,7 +40,9 @@ yauiclient/
 ├── CMakeLists.txt
 ├── README.md
 ├── LICENSE
-├── src/                  # C++ sources and headers
+├── src/                  # C++ sources, headers and the Visual Studio solution
+│   ├── third_party/      # vendored libraries (nlohmann/json, fpng, stb_image)
+│   └── deps/             # libmpv headers and import library for the Visual Studio solution
 ├── sdk/                  # libmpv SDK - gitignored, populate before building
 ├── tools/                # build and setup scripts
 ├── build/                # gitignored - CMake build tree
@@ -55,7 +57,7 @@ yauiclient/
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-brew install cmake ninja pkg-config curl glfw fmt nlohmann-json zlib mpv
+brew install cmake ninja pkg-config curl glfw fmt zlib mpv
 ```
 
 **Clone and build:**
@@ -119,7 +121,7 @@ Output: `dist/yauiclient.app` and `dist/yauiclient-macos-x64.tar.gz`
 ```bash
 sudo apt install -y \
   build-essential cmake ninja-build pkg-config git curl \
-  libglfw3-dev libfmt-dev nlohmann-json3-dev zlib1g-dev \
+  libglfw3-dev libfmt-dev zlib1g-dev \
   libcurl4-dev libluajit-5.1-dev libass-dev libbluray-dev \
   libjpeg62-turbo
 ```
@@ -129,7 +131,7 @@ sudo apt install -y \
 ```bash
 sudo pacman -S --needed \
   base-devel cmake ninja pkgconf git curl \
-  glfw fmt nlohmann-json zlib \
+  glfw fmt zlib \
   luajit libass libbluray libjpeg-turbo
 ```
 
@@ -268,17 +270,24 @@ and remote control key mapping.
 | FFmpeg | Bundled in libmpv SDK runtime |
 | libplacebo | Bundled in libmpv SDK runtime |
 | GLFW3 | System package / vcpkg / Homebrew |
+| GLEW | vcpkg (Windows only) |
 | fmt | System package / vcpkg / Homebrew |
-| nlohmann-json | System package / vcpkg / Homebrew |
-| cpr | Fetched automatically by CMake (FetchContent) |
+| nlohmann-json | Bundled in `src/third_party/nlohmann` (all builds) |
+| cpr | Fetched automatically by CMake (FetchContent, pinned to 1.14.2); vcpkg for the Visual Studio solution |
 | libcurl | System package / vcpkg / Homebrew |
 | zlib | System package / vcpkg / Homebrew |
+| fpng | Bundled in `src/third_party/fpng` |
+| stb_image | Bundled in `src/third_party/stb` |
+
+Versions, licences and update notes are tracked in [LIBRARIES.md](LIBRARIES.md).
 
 ---
 
 ## License
 
 MIT License — see [LICENSE](LICENSE) for full text.
+
+Bundled third-party code (nlohmann/json, fpng, stb_image, mpv client headers) is under its own licences. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Copyright (c) 2025-2026 Pinstripe Limited, Wellington, New Zealand
 Copyright (c) 2025-2026 Martin Vallevand

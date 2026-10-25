@@ -50,13 +50,13 @@ endif()
 # ---------------------------------------------------------------------------
 set(SOURCES
     src/AppMain.cpp
-    src/fpng.cpp
+    src/third_party/fpng/fpng.cpp
     src/LibmpvPlayer.cpp
     src/main.cpp
     src/MediaControl.cpp
     src/MpvCommand.cpp
     src/OverlayRenderer.cpp
-    src/stb_image_impl.cpp
+    src/third_party/stb/stb_image_impl.cpp
     src/UserConfig.cpp
     src/Utility.cpp
 )
@@ -72,7 +72,7 @@ else()
     set(_fpng_opts "-fno-strict-aliasing")
 endif()
 
-set_source_files_properties(src/fpng.cpp PROPERTIES
+set_source_files_properties(src/third_party/fpng/fpng.cpp PROPERTIES
     COMPILE_OPTIONS "${_fpng_opts}")
 
 if(PLATFORM_WINDOWS)
@@ -141,25 +141,13 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# nlohmann_json (header-only)
+# Bundled third-party code in src/third_party/ (nlohmann_json, fpng, stb_image)
 # ---------------------------------------------------------------------------
-find_package(nlohmann_json QUIET)
-if(nlohmann_json_FOUND)
-    target_link_libraries(yauiclient PRIVATE nlohmann_json::nlohmann_json)
-else()
-    pkg_check_modules(NLOHMANN_JSON QUIET nlohmann_json)
-    if(NLOHMANN_JSON_FOUND)
-        target_include_directories(yauiclient PRIVATE ${NLOHMANN_JSON_INCLUDE_DIRS})
-    else()
-        find_path(NLOHMANN_JSON_INCLUDE nlohmann/json.hpp
-            HINTS /usr/include /usr/local/include /opt/homebrew/include)
-        if(NLOHMANN_JSON_INCLUDE)
-            target_include_directories(yauiclient PRIVATE ${NLOHMANN_JSON_INCLUDE})
-        else()
-            message(FATAL_ERROR "nlohmann/json.hpp not found - install nlohmann-json")
-        endif()
-    endif()
+set(YAUI_THIRD_PARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/third_party)
+if(NOT EXISTS ${YAUI_THIRD_PARTY_DIR}/nlohmann/json.hpp)
+    message(FATAL_ERROR "src/third_party/nlohmann/json.hpp not found - the bundled copy is missing from the source tree")
 endif()
+target_include_directories(yauiclient BEFORE PRIVATE ${YAUI_THIRD_PARTY_DIR})
 
 # ---------------------------------------------------------------------------
 # zlib
